@@ -14,9 +14,10 @@ def load_raw_fps():
     dirs = [f.path for f in scandir(root) if f.is_dir()]
 
     for dir in dirs:
-        subdir_names = listdir(dir)
-        paths = [os.path.join(dir, name, "ses-1/anat") for name in subdir_names]
-        for name, path in zip(subdir_names, paths):
+        subdirs = [f for f in scandir(dir) if f.is_dir()]
+        for subdir in subdirs:
+            path = os.path.join(subdir.path, "ses-1/anat")
+            name = subdir.name
             metadata.append(os.path.join(path, f"{name}_ses-1_metadata.csv"))
             mris.append(
                 os.path.join(path, f"{name}_ses-1_space-orig_desc-brain_T1w.nii.gz")
