@@ -4,14 +4,14 @@ import matplotlib.pyplot as plt
 def main():
     dataset = ISLESDataset()
     
-    img = dataset[0]['image'].numpy()
-    mask = dataset[0]['mask'].numpy()
+    img = dataset[500]['image'].numpy()
+    mask = dataset[500]['mask'].numpy()
     
     def show_slices(slices):
         fig, axes = plt.subplots(1, len(slices))
         for i, (mri, mask) in enumerate(slices):
             axes[i].imshow(mri.T, cmap="gray", origin="lower")
-            axes[i].imshow(mask.T, cmap='autumn', alpha=0.1, interpolation='none')
+            axes[i].imshow(mask.T, cmap='autumn', alpha=0.3, interpolation='none')
             
     print(img.shape)
 
