@@ -19,15 +19,18 @@ def load_raw_fps():
             path = os.path.join(subdir.path, "ses-1/anat")
             name = subdir.name
             metadata.append(os.path.join(path, f"{name}_ses-1_metadata.csv"))
+            
             mris.append(
                 os.path.join(path, f"{name}_ses-1_space-orig_desc-brain_T1w.nii.gz")
             )
+            
             masks.append(
                 os.path.join(
                     path,
                     f"{name}_ses-1_space-orig_label-lesion_desc-T1lesion_mask.nii.gz",
                 )
             )
+            
     return (metadata, mris, masks)
     
 def n4_bias_field(array):
@@ -45,6 +48,7 @@ def n4_bias_field(array):
     log_bias_field = corrector.GetLogBiasFieldAsImage(img)
     corrected_image = img / sitk.Exp(log_bias_field)
     corrected_image = corrector.Execute(img, mask)
+    
     return np.transpose(sitk.GetArrayFromImage(corrected_image))
 
 def percentile_clip(array):
@@ -69,7 +73,6 @@ def process_image(path, out_path):
     
     img = nib.Nifti1Image(arr, affine=affine, header=header)
     nib.save(img, out_path)
-
 
 
 def main():
