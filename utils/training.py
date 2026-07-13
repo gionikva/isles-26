@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.amp import autocast, GradScaler
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 
 class LightMedSegLoss(nn.Module):
@@ -72,16 +73,17 @@ class LightMedSegLoss(nn.Module):
         # Total loss calculation
         total_loss = loss_dice + loss_ce + 0.5 * loss_bdry
         
-        return total_loss
+        return total_loss, loss_dice, loss_ce, loss_bdry
         
 
-def train(
+def train_model(
     model: nn.Module,
     train_loader: DataLoader,
     val_loader: DataLoader,
     num_epochs=100,
     device="cuda",
-    save_path="lightmedseg_best.pth",
+    save_path_best="lightmedseg_best.pth",
+    save_path_last="lightmedseg_last.pth"
 ):
     
     model = model.to(device)
@@ -92,3 +94,112 @@ def train(
     scaler = GradScaler()
     
     best_val_loss = float('inf')
+    
+    for epoch in range(num_epochs):
+        print(f"Epoch {epoch+1}/{num_epochs}\n")
+        
+        # ==============
+        # Training phase
+        # ==============
+        model.train()
+        
+        train_loss, train_dice, train_ce, train_bdry = 0.0, 0.0, 0.0, 0.0
+        
+        train_loop = tqdm(train_loader, desc='Train')
+        
+        for batch in train_loop:
+            inputs = batch['image'].to(device)
+            targets = batch['mask'].to(device)
+            
+            optimizer.zero_grad(set_to_none=True)
+            
+            with autocast():
+                logits = model(inputs)
+                loss, l_dice, l_ce, l_bdry = criterion(logits, targets)
+                
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+            
+            train_loss += loss.item()
+            train_dice += l_dice.item()
+            train_ce += l_ce.item()
+            train_bdry += l_bdry.item()
+            
+            train_loop.set_postfix(
+                Tot=f"{loss.item():.3f}", 
+                Dice=f"{l_dice.item():.3f}", 
+                CE=f"{l_ce.item():.3f}", 
+                Bdry=f"{l_bdry.item():.3f}"
+            )
+            
+        num_train_batches = len(train_loader)
+        avg_train_loss = train_loss / num_train_batches
+        scheduler.step()
+        
+        # ================
+        # Validation phase
+        # ================
+        
+        model.eval()
+        val_loss, val_dice, val_ce, val_bdry = 0.0, 0.0, 0.0, 0.0
+        
+        with torch.no_grad():
+            val_loop = tqdm(val_loader, desc = 'Val')
+            
+            for batch in val_loop:
+                inputs = batch['image'].to(device)
+                targets=  batch['mask'].to(device)
+                
+                with autocast():
+                    logits = model(inputs)
+                    loss, l_dice, l_ce, l_bdry = criterion(logits, targets)
+            
+            val_loss += loss.item()
+            val_dice += l_dice.item()
+            val_ce += l_ce.item()
+            val_bdry += l_bdry.item()
+            
+            val_loop.set_postfix(
+                Tot=f"{loss.item():.3f}", 
+                Dice=f"{l_dice.item():.3f}", 
+                CE=f"{l_ce.item():.3f}", 
+                Bdry=f"{l_bdry.item():.3f}"
+            )
+        
+        num_val_batches = len(val_loader)
+        avg_val_loss = val_loss / num_val_batches
+        current_lr = scheduler.get_last_lr()[0]
+        
+        print(
+            f"Train | Tot: {avg_train_loss:.4f}  Dice: {train_dice/num_train_batches:.4f}  "
+            f"CE: {train_ce/num_train_batches:.4f}  Bdry: {train_bdry/num_train_batches:.4f}"
+        )
+        print(
+            f"Val   | Tot: {avg_val_loss:.4f}  Dice: {val_dice/num_val_batches:.4f}  "
+            f"CE: {val_ce/num_val_batches:.4f}  Bdry: {val_bdry/num_val_batches:.4f} | LR: {current_lr:.2e}"
+        )
+        
+        # ==========================
+        #       CHECKPOINTING
+        # ==========================
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
+            print(f"--> Validation loss improved to {best_val_loss:.4f}. Saving checkpoint!")
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'val_loss': best_val_loss,
+            }, save_path_best)
+
+        torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'val_loss': avg_val_loss,
+            }, save_path_last)
+
+    
+        
+            
