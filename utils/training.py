@@ -62,7 +62,7 @@ class LightMedSegLoss(nn.Module):
         # Masks out the boundary voxels
         masked_bce = bce_voxelwise * M
         # Total boundary voxels per batch & class
-        M_sum = torch.sum(M, dim=(2, 3, 4)) + self.eps
+        M_sum = torch.sum(M, dim=(2, 3, 4)) + eps
         # Normalized cross entropy per batch and class
         bdry_loss_per_item_class = torch.sum(masked_bce, dim=(2, 3, 4)) / M_sum
         # Normalized cross entropy per class
@@ -113,7 +113,7 @@ def train_model(
             
             optimizer.zero_grad(set_to_none=True)
             
-            with autocast():
+            with autocast(device_type=device, dtype=torch.float16):
                 logits = model(inputs)
                 loss, l_dice, l_ce, l_bdry = criterion(logits, targets)
                 
@@ -151,7 +151,7 @@ def train_model(
                 inputs = batch['image'].to(device)
                 targets=  batch['mask'].to(device)
                 
-                with autocast():
+                with autocast(device_type=device, dtype=torch.float16):
                     logits = model(inputs)
                     loss, l_dice, l_ce, l_bdry = criterion(logits, targets)
             

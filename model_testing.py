@@ -41,14 +41,14 @@ def visualize_prediction(model, image, mask):
         fig, axes = plt.subplots(1, len(slices))
         for i, (mri, mask, prediction) in enumerate(slices):
             axes[i].imshow(mri.T, cmap="gray", origin="lower")
-            axes[i].imshow(mask.T, cmap='autumn', alpha=0.3, interpolation='none')
-            axes[i].imshow(prediction.T, cmap='winter', alpha=0.3, interpolation='none')
+            axes[i].imshow(mask.T, cmap='autumn', alpha=0.5, interpolation='none')
+            axes[i].imshow(prediction.T, cmap='winter', alpha=0.5, interpolation='none')
 
     print(image.shape)
 
     image = image.squeeze(0).numpy()
-    mask = mask.squeeze(0).numpy()
-    prediction = prediction.squeeze(0).squeeze(0).detach().numpy()
+    mask = mask[0, :, :, :].numpy()
+    prediction = prediction.squeeze(0)[0, :, :, :].detach().numpy()
     mask = np.ma.masked_where(mask == 0, mask)
     prediction = np.ma.masked_where(prediction < 0.5, prediction)
 
@@ -88,10 +88,21 @@ def test_model():
     # print (final_image.shape)
     model = LightMedSeg(n_classes=2, num_anchors=8)
     
+    device = 'cpu'
+    checkpoint_path = "lightmedseg_best.pth"
+
+    # 3. Load the dictionary from the file
+    # map_location ensures it loads correctly even if moving from GPU to CPU
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+
+    # 4. Inject the saved weights into the model
+    model.load_state_dict(checkpoint['model_state_dict'])
+    
+    
     prediction = model(img.unsqueeze(0))
     print(prediction.shape)
     
-    # visualize_prediction(model, img, mask)
+    visualize_prediction(model, img, mask)
   
 
 def main():

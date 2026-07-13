@@ -30,7 +30,7 @@ def main():
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    train_model(model, train_loader, val_loader, num_epochs=1, device=device)
+    train_model(model, train_loader, val_loader, num_epochs=10, device=device)
 
     image = dataset[0]["image"].to(device)
     mask = dataset[0]["mask"].to(device)
