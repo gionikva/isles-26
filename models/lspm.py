@@ -74,7 +74,7 @@ class SpatialGatingHead(nn.Module):
         x2 = self.conv2(x1)
         alphas = self.projection(x2)
         
-        return alphas[:, 0, ...], alphas[:, 1, ...]
+        return alphas[:, 0:1, ...], alphas[:, 1:2, ...]
 
 class AdaptiveFeatureMixer(nn.Module):
     def __init__(self, in_channels=8):
