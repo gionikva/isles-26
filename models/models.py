@@ -447,10 +447,10 @@ class Decoder(Module):
 
 
 class LightMedSeg(Module):
-    def __init__(self, n_classes=2, num_anchors=8):
+    def __init__(self, n_classes=2, num_anchors=8, downsample=True):
         super().__init__()
         
-        self.embedding_stem = GhostConv3D(1, 8, downscale=True)
+        self.embedding_stem = GhostConv3D(1, 8, downscale=downsample)
         
         self.anchor_detector = GlobalAnchorDetector(8, 8, num_anchors=num_anchors)
         self.lspm = LSPM()
@@ -466,13 +466,48 @@ class LightMedSeg(Module):
         self.segmentation_head = nn.Conv3d(8, n_classes, kernel_size=1, stride=1, padding=0)
         self.final_upsample = nn.ConvTranspose3d(n_classes, n_classes, kernel_size=2, stride=2)
 
+
+    
     def forward(self, X):
+        _, _, D, H, W = X.shape
         embedding = self.embedding_stem(X)
         anchors = self.anchor_detector(embedding)
         T, f0 = self.lspm(embedding)
         # print(T, f0, anchors)
         e1_out, E1 = self.E1(f0, anchors, T)
-        print(e1_out.shape)
+        # print(e1_out.shape)
+        e2_out, E2 = self.E2(e1_out, anchors, T)
+        # del e1_out
+        e3_out, E3 = self.E3(e2_out, anchors, T)
+        # del e2_out
+        e4_out, E4 = self.E4(e3_out, anchors, T)
+        # del e3_out
+        skip_1, skip_2, skip_3, skip_4 = self.skip_fusion(E1, E2, E3, E4, input_shape=X.shape[2:])
+        # del E1, E2, E3, E4
+        # print(E1.shape, E2.shape, E3.shape, E4.shape)
+        # print(skip_1.shape, skip_2.shape, skip_3.shape, skip_4.shape)
+        # print(e1_out.shape, e2_out.shape, e3_out.shape, e4_out.shape)
+
+        d1_out = self.D1(e4_out, skip_1, anchors)
+        # del e4_out, skip_1
+        d2_out = self.D2(d1_out, skip_2, anchors)
+        # del d1_out, skip_2
+        d3_out = self.D3(d2_out, skip_3, anchors)
+        # del d2_out, skip_3
+        d4_out = self.D4(d3_out, skip_4, anchors)
+        # del d3_out, skip_4
+        logits = self.segmentation_head(d4_out)
+        out = F.interpolate(logits, (D, H, W), mode="nearest")
+        # out = self.final_upsample(logits)   
+        return out
+    
+    def debug_forward(self, X):
+        embedding = self.embedding_stem(X)
+        anchors = self.anchor_detector(embedding)
+        T, f0 = self.lspm(embedding)
+        # print(T, f0, anchors)
+        e1_out, E1 = self.E1(f0, anchors, T)
+        # print(e1_out.shape)
         e2_out, E2 = self.E2(e1_out, anchors, T)
         del e1_out
         e3_out, E3 = self.E3(e2_out, anchors, T)
@@ -494,5 +529,14 @@ class LightMedSeg(Module):
         d4_out = self.D4(d3_out, skip_4, anchors)
         del d3_out, skip_4
         logits = self.segmentation_head(d4_out)
-        out = self.final_upsample(logits)   
+        
+        
+        
+        
+        # out = self.final_upsample(logits)   
+        out = F.interpolate(logits, (256, 256, 256), mode="trilinear")
+        
+    
+        
+        
         return out

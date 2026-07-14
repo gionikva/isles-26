@@ -17,7 +17,7 @@ class LightMedSegLoss(nn.Module):
         B, C, D, H, W = logits.shape
         
         # Small value to avoid division by zero
-        eps = 2e-8
+        eps = 2e-5
         
         # Per-class weights calculation:
         # ______________________________
@@ -81,6 +81,8 @@ def train_model(
     train_loader: DataLoader,
     val_loader: DataLoader,
     num_epochs=100,
+    # learning rate range initial (max) to final (min)
+    lr=(2e-4, 1e-9),
     device="cuda",
     save_path_best="lightmedseg_best.pth",
     save_path_last="lightmedseg_last.pth"
@@ -88,9 +90,9 @@ def train_model(
     
     model = model.to(device)
     
-    optimizer = optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
+    optimizer = optim.AdamW(model.parameters(), lr=lr[0], weight_decay=1e-5)
     criterion = LightMedSegLoss(num_classes=2) 
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, eta_min=lr[1], T_max=num_epochs)
     scaler = GradScaler()
     
     best_val_loss = float('inf')
@@ -113,7 +115,7 @@ def train_model(
             
             optimizer.zero_grad(set_to_none=True)
             
-            with autocast(device_type=device, dtype=torch.float16):
+            with autocast(device_type=device, dtype=torch.float32):
                 logits = model(inputs)
                 loss, l_dice, l_ce, l_bdry = criterion(logits, targets)
                 
@@ -126,11 +128,17 @@ def train_model(
             train_ce += l_ce.item()
             train_bdry += l_bdry.item()
             
+            free_mem, total_mem = torch.cuda.mem_get_info()
+            
+            used_mem = (total_mem - free_mem) / 2 ** 20
+            total_mem = total_mem / 2 ** 20
+            
             train_loop.set_postfix(
                 Tot=f"{loss.item():.3f}", 
                 Dice=f"{l_dice.item():.3f}", 
                 CE=f"{l_ce.item():.3f}", 
-                Bdry=f"{l_bdry.item():.3f}"
+                Bdry=f"{l_bdry.item():.3f}",
+                Mem=f"Used VRAM: {used_mem}MiB/{total_mem}MiB"
             )
             
         num_train_batches = len(train_loader)
@@ -151,7 +159,7 @@ def train_model(
                 inputs = batch['image'].to(device)
                 targets=  batch['mask'].to(device)
                 
-                with autocast(device_type=device, dtype=torch.float16):
+                with autocast(device_type=device, dtype=torch.float32):
                     logits = model(inputs)
                     loss, l_dice, l_ce, l_bdry = criterion(logits, targets)
             

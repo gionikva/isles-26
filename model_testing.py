@@ -1,6 +1,7 @@
 from matplotlib import pyplot as plt
 import numpy as np
 import torch
+from torch.amp import autocast
 from models.models import GlobalAnchorDetector, GhostConv3D, LightMedSeg, SpatialAnchorFiLM
 from models.lspm import LSPM
 from utils.dataset import ISLESDataset
@@ -30,12 +31,66 @@ def test_components():
     
     print(f0.shape)
 
-def visualize_prediction(model, image, mask):
+
+def predict_in_octants(model, image, num_classes=2):
+    """
+    Splits a 256x256x256 image into 8 octants of 128x128x128,
+    runs model inference on each, and reconstructs the full volume.
     
+    Args:
+        model: The trained PyTorch model.
+        image: Input tensor of shape (B, C, 256, 256, 256).
+        num_classes: Number of output channels the model predicts.
+        
+    Returns:
+        final_mask: The combined argmax segmentation mask of shape (B, 256, 256, 256).
+    """
+    B, C, D, H, W = image.shape
+    device = image.device
+    
+    # Pre-allocate an empty tensor to hold the stitched logits
+    # Shape: (B, num_classes, 256, 256, 256)
+    full_logits = torch.zeros((B, num_classes, D, H, W), device=device, dtype=torch.float16)
+    
+    # Define the starting indices for our 8 blocks (0 and 128)
+    steps = [0, 128]
+    
+    model.eval()
+    # Loop through the 3 spatial dimensions (Depth, Height, Width)
+    for d in steps:
+        for h in steps:
+            for w in steps:
+                # 1. Extract the 128x128x128 patch
+                patch = image[:, :, d:d+128, h:h+128, w:w+128]
+                
+                # 2. Run the patch through the model
+                patch_logits = model(patch)
+                
+                # 3. Place the output exactly where it belongs in the full volume
+                full_logits[:, :, d:d+128, h:h+128, w:w+128] = patch_logits
+                
+                print("finished octant")
+
+    # Convert the raw logits into a final discrete segmentation mask
+    # argmax across the channel dimension (dim=1) collapses it to (B, 256, 256, 256)
+    final_mask = torch.argmax(full_logits, dim=1)
+    
+    return final_mask
+
+def visualize_prediction(model, image, mask, cropped=True, debug=False):
+    
+    size = 256 if cropped else 256
+    
+  
+
     image = image.cpu()
     mask = mask.cpu()
     model = model.cpu()
-    prediction = F.softmax(model(image.unsqueeze(0)), dim=1)
+    fwd = model.debug_forward if debug else model.forward
+    if not cropped:
+        prediction = 1.0 - torch.argmax(fwd(image.unsqueeze(0)), dim=1)
+    else:
+        prediction = predict_in_octants(model, image.unsqueeze(0))
     
     def show_slices(slices):
         fig, axes = plt.subplots(1, len(slices))
@@ -48,22 +103,22 @@ def visualize_prediction(model, image, mask):
 
     image = image.squeeze(0).numpy()
     mask = mask[0, :, :, :].numpy()
-    prediction = prediction.squeeze(0)[0, :, :, :].detach().numpy()
+    prediction = prediction[0, :, :, :].detach().numpy()
     mask = np.ma.masked_where(mask == 0, mask)
-    prediction = np.ma.masked_where(prediction < 0.5, prediction)
+    prediction = np.ma.masked_where(prediction == 0, prediction)
 
-    mri_0 = image[128, :, :]
-    mask_0 = mask[128, :, :]
-    prediction_0 = prediction[128, :, :]
+    mri_0 = image[size//2, :, :]
+    mask_0 = mask[size//2, :, :]
+    prediction_0 = prediction[size//2, :, :]
     
-    mri_1 = image[:, 128, :]
-    mask_1 = mask[:, 128, :]
-    prediction_1 = prediction[:, 128, :]
+    mri_1 = image[:, size//2, :]
+    mask_1 = mask[:, size//2, :]
+    prediction_1 = prediction[:, size//2, :]
 
     
-    mri_2 = image[:, :, 128]
-    mask_2 = mask[:, :, 128]
-    prediction_2 = prediction[:, :, 128]
+    mri_2 = image[:, :, size//2]
+    mask_2 = mask[:, :, size//2]
+    prediction_2 = prediction[:, :, size//2]
     
    
     show_slices([(mri_0, mask_0, prediction_0), (mri_1, mask_1, prediction_1), (mri_2, mask_2, prediction_2)])
@@ -73,23 +128,24 @@ def visualize_prediction(model, image, mask):
     print(prediction.shape)
 
 def test_model():
-    dataset = ISLESDataset()
+    dataset = ISLESDataset(random_crop=False)
 
-    img = dataset[500]['image']
-    mask = dataset[500]['mask']
+    item = dataset[800]
+
+    img = item['image']
+    mask = item['mask']
     
     
     
     print(img.shape)
     print(mask.shape)
     
-    standardize_grid = ResizeWithPadOrCrop(spatial_size=(256, 256, 256), mode='constant')
     
     # print (final_image.shape)
     model = LightMedSeg(n_classes=2, num_anchors=8)
     
     device = 'cpu'
-    checkpoint_path = "lightmedseg_best.pth"
+    checkpoint_path = "./uncropped/best.pth"
 
     # 3. Load the dictionary from the file
     # map_location ensures it loads correctly even if moving from GPU to CPU
@@ -98,11 +154,14 @@ def test_model():
     # 4. Inject the saved weights into the model
     model.load_state_dict(checkpoint['model_state_dict'])
     
+    print(sum(p.numel() for p in model.parameters() if p.requires_grad))
+    # print(checkpoint['model_state_dict'])
     
-    prediction = model(img.unsqueeze(0))
-    print(prediction.shape)
     
-    visualize_prediction(model, img, mask)
+    # prediction = model(img.unsqueeze(0))
+    # print(prediction.shape)
+    
+    visualize_prediction(model, img, mask, cropped=False, debug=False)
   
 
 def main():
