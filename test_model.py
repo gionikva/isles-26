@@ -1,4 +1,4 @@
-from matplotlib import pyplot as plt
+import napari
 import numpy as np
 import torch
 from torch.amp import autocast
@@ -79,6 +79,8 @@ def predict_in_octants(model, image, num_classes=2):
 
 def visualize_prediction(model, image, mask, cropped=True, debug=False):
     
+    
+    
     size = 256 if cropped else 256
     
   
@@ -92,12 +94,12 @@ def visualize_prediction(model, image, mask, cropped=True, debug=False):
     else:
         prediction = predict_in_octants(model, image.unsqueeze(0))
     
-    def show_slices(slices):
-        fig, axes = plt.subplots(1, len(slices))
-        for i, (mri, mask, prediction) in enumerate(slices):
-            axes[i].imshow(mri.T, cmap="gray", origin="lower")
-            axes[i].imshow(mask.T, cmap='autumn', alpha=0.5, interpolation='none')
-            axes[i].imshow(prediction.T, cmap='winter', alpha=0.5, interpolation='none')
+    # def show_slices(slices):
+    #     fig, axes = plt.subplots(1, len(slices))
+    #     for i, (mri, mask, prediction) in enumerate(slices):
+    #         axes[i].imshow(mri.T, cmap="gray", origin="lower")
+    #         axes[i].imshow(mask.T, cmap='autumn', alpha=0.5, interpolation='none')
+    #         axes[i].imshow(prediction.T, cmap='winter', alpha=0.5, interpolation='none')
 
     print(image.shape)
 
@@ -106,31 +108,40 @@ def visualize_prediction(model, image, mask, cropped=True, debug=False):
     prediction = prediction[0, :, :, :].detach().numpy()
     mask = np.ma.masked_where(mask == 0, mask)
     prediction = np.ma.masked_where(prediction == 0, prediction)
-
-    mri_0 = image[size//2, :, :]
-    mask_0 = mask[size//2, :, :]
-    prediction_0 = prediction[size//2, :, :]
     
-    mri_1 = image[:, size//2, :]
-    mask_1 = mask[:, size//2, :]
-    prediction_1 = prediction[:, size//2, :]
+    viewer = napari.Viewer()
+
+    viewer.add_image(image)
+    
+    viewer.add_labels(mask.astype(int), name='Label', opacity=0.5)
+    viewer.add_labels(prediction.astype(int), name='Prediction', opacity=0.5, colormap={1:'blue'})
+    
+    napari.run()
+
+    # mri_0 = image[size//2, :, :]
+    # mask_0 = mask[size//2, :, :]
+    # prediction_0 = prediction[size//2, :, :]
+    
+    # mri_1 = image[:, size//2, :]
+    # mask_1 = mask[:, size//2, :]
+    # prediction_1 = prediction[:, size//2, :]
 
     
-    mri_2 = image[:, :, size//2]
-    mask_2 = mask[:, :, size//2]
-    prediction_2 = prediction[:, :, size//2]
+    # mri_2 = image[:, :, size//2]
+    # mask_2 = mask[:, :, size//2]
+    # prediction_2 = prediction[:, :, size//2]
     
    
-    show_slices([(mri_0, mask_0, prediction_0), (mri_1, mask_1, prediction_1), (mri_2, mask_2, prediction_2)])
-    plt.tight_layout()
-    plt.show()
+    # show_slices([(mri_0, mask_0, prediction_0), (mri_1, mask_1, prediction_1), (mri_2, mask_2, prediction_2)])
+    # plt.tight_layout()
+    # plt.show()
     
-    print(prediction.shape)
+    # print(prediction.shape)
 
 def test_model():
     dataset = ISLESDataset(random_crop=False)
 
-    item = dataset[800]
+    item = dataset[200]
 
     img = item['image']
     mask = item['mask']
@@ -145,7 +156,7 @@ def test_model():
     model = LightMedSeg(n_classes=2, num_anchors=8)
     
     device = 'cpu'
-    checkpoint_path = "./uncropped/best.pth"
+    checkpoint_path = "./weights/uncropped/best.pth"
 
     # 3. Load the dictionary from the file
     # map_location ensures it loads correctly even if moving from GPU to CPU

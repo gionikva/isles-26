@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader, random_split
 
 
 import torch.nn as nn
-from model_testing import visualize_prediction
+from test_model import visualize_prediction
 
 import torch.nn.functional as F
 from tqdm import tqdm
