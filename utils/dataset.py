@@ -9,6 +9,8 @@ from glob import glob
 from os import scandir, listdir
 import os
 
+from utils.shared import get_dataset_filepaths
+
 
 class OctantCropDataset(Dataset):
     # mask_add_bgc: whether to add a background channel to the target mask
@@ -17,26 +19,7 @@ class OctantCropDataset(Dataset):
         
         self.mask_add_bgc = mask_add_bgc
         
-        self.metadata = []
-        self.features = []
-        self.labels = []
-
-        root = "./data"
-        dirs = [f for f in scandir(root)]
-
-        for dir in dirs:
-            # name = dir.name
-            path = dir.path
-
-            self.metadata.append(os.path.join(path, "meta.csv"))
-            self.features.append(os.path.join(path, "img.nii.gz"))
-            self.labels.append(os.path.join(path, "mask.nii.gz"))
-    
-        if range is not None:
-            self.metadata = self.metadata[range[0]:range[1]]
-            self.features = self.features[range[0]:range[1]]
-            self.labels = self.labels[range[0]:range[1]]
-        
+        self.metadata, self.features, self.labels = get_dataset_filepaths(range)
         
         
         self.standardize_grid = ResizeWithPadOrCrop(spatial_size=(256, 256, 256), mode='constant')
@@ -107,27 +90,8 @@ class ISLESDataset(Dataset):
         self.mask_add_bgc = mask_add_bgc
         self.random_crop = random_crop
         
-        self.metadata = []
-        self.features = []
-        self.labels = []
+        self.metadata, self.features, self.labels = get_dataset_filepaths(range)
 
-        root = "./data"
-        dirs = [f for f in scandir(root)]
-
-        for dir in dirs:
-            # name = dir.name
-            path = dir.path
-
-            self.metadata.append(os.path.join(path, "meta.csv"))
-            self.features.append(os.path.join(path, "img.nii.gz"))
-            self.labels.append(os.path.join(path, "mask.nii.gz"))
-    
-        if range is not None:
-            self.metadata = self.metadata[range[0]:range[1]]
-            self.features = self.features[range[0]:range[1]]
-            self.labels = self.labels[range[0]:range[1]]
-        
-        
         
         self.standardize_grid = ResizeWithPadOrCrop(spatial_size=(256, 256, 256), mode='constant')
         
@@ -152,9 +116,11 @@ class ISLESDataset(Dataset):
             bg = 1.0 - mask
             mask = torch.cat([mask, bg], dim = 0)
         meta = pd.read_csv(self.metadata[idx])
+        days_post_stroke = torch.tensor(meta['DAYS_POST_STROKE'][0])
+        # print(meta)
         # return {"image": image, "mask": mask, "metadata": meta}
         
-        out = {"image": image, "mask": mask}
+        out = {"image": image, "mask": mask, "days_post_stroke": days_post_stroke}
         
         if self.random_crop:
             return self.cropper(out)

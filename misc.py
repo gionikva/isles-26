@@ -1,4 +1,6 @@
 from utils.dataset import ISLESDataset
+from utils.stats import MetadataIterator
+# from numpy import 
 import matplotlib.pyplot as plt
 
 def main():
@@ -28,7 +30,28 @@ def main():
     show_slices([(mri_0, mask_0), (mri_1, mask_1), (mri_2, mask_2)])
     plt.tight_layout()
     plt.show()
-    
+
+def check_chronicity():
+    meta_iter = MetadataIterator()
+    total = len(meta_iter)
+    has_chronicity = 0
+    for meta in meta_iter:
+        
+        print(meta)
+
+
+        
+        
+        dps = meta['DAYS_POST_STROKE'][0]
+        chronicity = meta['CHRONICITY'][0]
+        
+        
+        print(dps)
+        print(chronicity)
+        
+        # print(meta['CHRONICITY'][0])
+        
+    # item = dataset[200]
 
 if __name__ == "__main__":
-    main()
+    check_chronicity()
