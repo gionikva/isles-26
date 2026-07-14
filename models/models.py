@@ -445,6 +445,12 @@ class Decoder(Module):
         out = self.se(f_out)
         return out
 
+class MetadataFiLM(nn.Module):
+    def __init__(self, meta_dim=4, feature_dim=64, hidden_dim=16):
+        super().__init__()
+    def forward(self, x, metadata):
+        pass
+
 
 class LightMedSeg(Module):
     def __init__(self, n_classes=2, num_anchors=8, downsample=True):
