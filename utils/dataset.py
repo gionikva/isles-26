@@ -15,7 +15,8 @@ from monai.transforms import (
     ConcatItemsd,
     DeleteItemsd,
     ResizeWithPadOrCropd,
-    Lambdad
+    Lambdad,
+    RandCropByPosNegLabeld
 )
 from glob import glob
 from os import scandir, listdir
@@ -103,6 +104,7 @@ class ISLESDataset(Dataset):
         split="train",
         range=None,
         mask_add_bgc=True,
+        add_extra_channels=False,
         random_crop=False,
         random_seed=42,
     ):
@@ -113,61 +115,83 @@ class ISLESDataset(Dataset):
 
         self.metadata, self.features, self.labels = get_dataset_filepaths(range)
 
+        print(len(self.features))
+
         # self.standardize_grid = ResizeWithPadOrCrop(
         #     spatial_size=(256, 256, 256), mode="constant"
         # )
 
         feature_keys = ["image", "image_edges", "image_contrast"]
 
-        self.transforms = Compose(
-            [
-                LoadImaged(keys=["image", "mask"]),
-                EnsureChannelFirstd(keys=["image", "mask"]),
-                ResizeWithPadOrCropd(
-                    keys=["image", "mask"],
-                    spatial_size=(256, 256, 256),
-                    mode="constant",
-                ),
-                Lambdad(
-                    keys=["mask"], 
-                    func=lambda x: torch.cat([1.0 - x, x], dim=0)
-                ),
-                # 1. Duplicate the raw image into two new temporary keys
-                CopyItemsd(
-                    keys=["image", "image"],
-                    times=1,
-                    names=["image_edges", "image_contrast"],
-                ),
-                # 2. Channel A: Generate the Edge Map
-                SobelGradientsd(keys=["image_edges"]),
-                # 3. Channel B: Generate the High-Contrast Map
-                # Clip the bottom 5% and top 5% of intensities, stretch the rest to [0, 1]
-                ScaleIntensityRangePercentilesd(
-                    keys=["image_contrast"],
-                    lower=5.0,
-                    upper=95.0,
-                    b_min=0.0,
-                    b_max=1.0,
-                    clip=True,
-                    relative=False,
-                ),
-                # Normalize the base image and edge map to [0, 1] as well for consistency
-                ScaleIntensityRangePercentilesd(
-                    keys=["image", "image_edges"],
-                    lower=0.0,
-                    upper=100.0,
-                    b_min=0.0,
-                    b_max=1.0,
-                    clip=True,
-                    relative=False,
-                ),
-                # 4. Concatenate the original and new channels along the channel dimension (dim=0)
-                # This turns a (1, D, H, W) tensor into a (3, D, H, W) tensor
-                ConcatItemsd(keys=feature_keys, name="image", dim=0),
-                # 5. Clean up the dictionary so it doesn't waste RAM
-                DeleteItemsd(keys=["image_edges", "image_contrast"]),
-            ]
+        transform_list = [
+            LoadImaged(keys=["image", "mask"]),
+            EnsureChannelFirstd(keys=["image", "mask"]),
+            # EnsureTyped(keys=["image", "mask"], device="cuda"),
+            ResizeWithPadOrCropd(
+                keys=["image", "mask"],
+                spatial_size=(256, 256, 256),
+                mode="constant",
+            ),
+            Lambdad(keys=["mask"], func=lambda x: torch.cat([1.0 - x, x], dim=0)),
+        ]
+        
+        cropper = RandCropByPosNegLabeld(
+            keys=["image", "mask"],
+            label_key="mask",
+            spatial_size=(128, 128, 128), # 1/8th the VRAM, but full voxel resolution!
+            pos=1, # Ratio of patches containing a lesion
+            neg=1, # Ratio of patches containing background only
+            num_samples=1, # How many patches to extract per patient per epoch
+            image_key="image",
+            image_threshold=0,
         )
+        
+        extra_transforms = [
+            # 1. Duplicate the raw image into two new temporary keys
+            CopyItemsd(
+                keys=["image", "image"],
+                times=1,
+                names=["image_edges", "image_contrast"],
+            ),
+            # 2. Channel A: Generate the Edge Map
+            SobelGradientsd(keys=["image_edges"]),
+            # 3. Channel B: Generate the High-Contrast Map
+            # Clip the bottom 5% and top 5% of intensities, stretch the rest to [0, 1]
+            ScaleIntensityRangePercentilesd(
+                keys=["image_contrast"],
+                lower=5.0,
+                upper=95.0,
+                b_min=0.0,
+                b_max=1.0,
+                clip=True,
+                relative=False,
+            ),
+            # Normalize the base image and edge map to [0, 1] as well for consistency
+            ScaleIntensityRangePercentilesd(
+                keys=["image", "image_edges"],
+                lower=0.0,
+                upper=100.0,
+                b_min=0.0,
+                b_max=1.0,
+                clip=True,
+                relative=False,
+            ),
+            # 4. Concatenate the original and new channels along the channel dimension (dim=0)
+            # This turns a (1, D, H, W) tensor into a (3, D, H, W) tensor
+            ConcatItemsd(keys=feature_keys, name="image", dim=0),
+            # 5. Clean up the dictionary so it doesn't waste RAM
+            DeleteItemsd(keys=["image_edges", "image_contrast"]),
+        ]
+
+      
+        
+        if add_extra_channels:
+            transform_list.extend(extra_transforms)
+            
+        if random_crop:
+            transform_list.append(cropper)
+
+        self.transforms = Compose(transform_list)
 
         # self.cropper = RandSpatialCropd(
         #     keys=["image", "mask"],
@@ -221,27 +245,25 @@ class ISLESDataset(Dataset):
         # )
 
         # mask = torch.tensor(nib.load(self.labels[idx]).get_fdata(), dtype=torch.float)
-        
-      
-        
-        
+
         # image = self.standardize_grid(image.unsqueeze(0))
         # mask = self.standardize_grid(mask.unsqueeze(0))
         # if self.mask_add_bgc:
         #     bg = 1.0 - mask
         #     mask = torch.cat([bg, mask], dim=0)
         meta = self.parse_metadata(self.metadata[idx])
-        
+
         out = {"image": self.features[idx], "mask": self.labels[idx], "metadata": meta}
         # days_post_stroke = torch.tensor(meta['DAYS_POST_STROKE'][0])
         # print(meta)
         # return {"image": image, "mask": mask, "metadata": meta}
 
+        
         out = self.transforms(out)
 
         if self.random_crop:
-            return self.cropper(out)
-        else:
+            return out[0]
+        else:   
             return out
 
     def __len__(self):

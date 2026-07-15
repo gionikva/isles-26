@@ -6,10 +6,14 @@ from torch.amp import autocast, GradScaler
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+from models.models import LightMedSeg
+
 
 class LightMedSegLoss(nn.Module):
-    def __init__(self, num_classes=2):
+    def __init__(self, ce_only=False, num_classes=2):
         super().__init__()
+        
+        self.ce_only = ce_only
         
         self.num_classes = num_classes
         
@@ -17,7 +21,7 @@ class LightMedSegLoss(nn.Module):
         B, C, D, H, W = logits.shape
         
         # Small value to avoid division by zero
-        eps = 2e-5
+        eps = 1e-7
         
         # Per-class weights calculation:
         # ______________________________
@@ -72,17 +76,20 @@ class LightMedSegLoss(nn.Module):
         
         # Total loss calculation
         total_loss = loss_dice + loss_ce + 0.5 * loss_bdry
-        
-        return total_loss, loss_dice, loss_ce, loss_bdry
+        if not self.ce_only:
+            return total_loss, loss_dice, loss_ce, loss_bdry
+        else:
+            return loss_ce, torch.tensor(0.), loss_ce, torch.tensor(0.) 
         
 
 def train_model(
-    model: nn.Module,
+    model: LightMedSeg,
     train_loader: DataLoader,
     val_loader: DataLoader,
     num_epochs=100,
     # learning rate range initial (max) to final (min)
     lr=(2e-4, 1e-9),
+    ce_only=False,
     device="cuda",
     save_path_best="lightmedseg_best.pth",
     save_path_last="lightmedseg_last.pth"
@@ -90,8 +97,8 @@ def train_model(
     
     model = model.to(device)
     
-    optimizer = optim.AdamW(model.parameters(), lr=lr[0], weight_decay=1e-5)
-    criterion = LightMedSegLoss(num_classes=2) 
+    optimizer = optim.AdamW(model.parameters(), lr=lr[0], weight_decay=0)
+    criterion = LightMedSegLoss(num_classes=2, ce_only=ce_only) 
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, eta_min=lr[1], T_max=num_epochs)
     scaler = GradScaler()
     
@@ -110,19 +117,24 @@ def train_model(
         train_loop = tqdm(train_loader, desc='Train')
         
         for batch in train_loop:
+            print(type(batch))
             images = batch['image'].to(device)
             metadata = batch['metadata'].to(device)
             targets = batch['mask'].to(device)
             
             optimizer.zero_grad(set_to_none=True)
             
-            with autocast(device_type=device, dtype=torch.float32):
-                logits = model(images, metadata)
-                loss, l_dice, l_ce, l_bdry = criterion(logits, targets)
+            # with autocast(device_type=device, dtype=torch.float32):
+            logits = model(images, metadata)
+            loss, l_dice, l_ce, l_bdry = criterion(logits, targets)
                 
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
+                
+            loss.backward()
+            optimizer.step()
+            
+            # scaler.scale(loss).backward()
+            # scaler.step(optimizer)
+            # scaler.update()
             
             train_loss += loss.item()
             train_dice += l_dice.item()
@@ -139,7 +151,7 @@ def train_model(
                 Dice=f"{l_dice.item():.3f}", 
                 CE=f"{l_ce.item():.3f}", 
                 Bdry=f"{l_bdry.item():.3f}",
-                Mem=f"Used VRAM: {used_mem}MiB/{total_mem}MiB"
+                Mem=f"{used_mem}MiB/{total_mem}MiB"
             )
             
         num_train_batches = len(train_loader)
@@ -165,17 +177,17 @@ def train_model(
                     logits = model(images, metadata)
                     loss, l_dice, l_ce, l_bdry = criterion(logits, targets)
             
-            val_loss += loss.item()
-            val_dice += l_dice.item()
-            val_ce += l_ce.item()
-            val_bdry += l_bdry.item()
-            
-            val_loop.set_postfix(
-                Tot=f"{loss.item():.3f}", 
-                Dice=f"{l_dice.item():.3f}", 
-                CE=f"{l_ce.item():.3f}", 
-                Bdry=f"{l_bdry.item():.3f}"
-            )
+                val_loss += loss.item()
+                val_dice += l_dice.item()
+                val_ce += l_ce.item()
+                val_bdry += l_bdry.item()
+                
+                val_loop.set_postfix(
+                    Tot=f"{loss.item():.3f}", 
+                    Dice=f"{l_dice.item():.3f}", 
+                    CE=f"{l_ce.item():.3f}", 
+                    Bdry=f"{l_bdry.item():.3f}"
+                )
         
         num_val_batches = len(val_loader)
         avg_val_loss = val_loss / num_val_batches
@@ -193,22 +205,23 @@ def train_model(
         # ==========================
         #       CHECKPOINTING
         # ==========================
+        
+        save_dict = {
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'val_loss': avg_val_loss,
+            'in_channels': model.in_channels,
+            'num_anchors': model.num_anchors,
+            'metadata_film': model.metadata_film
+        }   
+
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
             print(f"--> Validation loss improved to {best_val_loss:.4f}. Saving checkpoint!")
-            torch.save({
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'val_loss': best_val_loss,
-            }, save_path_best)
+            torch.save(save_dict, save_path_best)
 
-        torch.save({
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'val_loss': avg_val_loss,
-            }, save_path_last)
+        torch.save(save_dict, save_path_last)
 
     
         

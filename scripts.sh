@@ -1,0 +1,1 @@
+python train_model.py -o uncropped_film_single_channel -e 80 -r 0:10

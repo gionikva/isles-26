@@ -24,32 +24,63 @@ def main():
         help="Where to output the best and last weights.",
         default="out",
     )
-    parser.add_argument(
-        "-c",
-        "--crop",
-        help="Whether to train on cropped octants",
-        default=0,
-        type=int
-    )
+
     parser.add_argument(
         "-e",
         "--epochs",
-        help="Number of epochs for training/eval",
+        help="Number of epochs for training/eval.",
         type=int,
         default=40,
+    )
+    parser.add_argument(
+        "-r",
+        "--range",
+        help="Range of datapoints to train on in the format start_idx:end_idx.",
+        type=str,
+        default=None,
+    )
+    parser.add_argument(
+        "-a",
+        "--num-anchors",
+        help="num_anchors hyperparameter value.",
+        type=int,
+        default=8,
+    )
+    parser.add_argument(
+        "-m",
+        "--ignore-metadata",
+        help="Disables the metadata FiLM functionality.",
+        action="store_true",
+    )
+    parser.add_argument(
+        "-c", "--crop", help="Train using random crop.", action="store_true"
+    )
+    parser.add_argument(
+        "-t",
+        "--add-transformed-channels",
+        help="Add extra channels to the input mri.",
+        action="store_true",
     )
     args = parser.parse_args()
 
     output_dir = args.output
-    crop = bool(args.crop)
     epochs = args.epochs
+    num_anchors = args.num_anchors
+    crop = args.crop
+    extra_channels = args.add_transformed_channels
+    metadata_film = not args.ignore_metadata
 
     BATCH_SIZE = 8 if crop else 1
+    downsample = not crop
+
+    rng = args.range
+    data_range = None if rng == None else [int(idx) for idx in rng.split(":")]
+    print(data_range)
 
     dataset = (
-        OctantCropDataset(range=(0, 400))
-        if crop
-        else ISLESDataset(range=(0, 400), random_crop=False)
+        ISLESDataset(
+            range=data_range, add_extra_channels=extra_channels, random_crop=True
+        )
     )
 
     print(len(dataset))
@@ -63,11 +94,18 @@ def main():
 
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=True)
-    model = LightMedSeg(n_classes=2, num_anchors=8, downsample=True)
+    model = LightMedSeg(
+        n_classes=2,
+        in_channels=5 if extra_channels else 1,
+        num_anchors=num_anchors,
+        metadata_film=metadata_film,
+        downsample=downsample,
+    )
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    os.mkdir(output_dir)
+    if not os.path.isdir(output_dir):
+        os.mkdir(output_dir)
 
     train_model(
         model,
@@ -75,7 +113,8 @@ def main():
         val_loader,
         num_epochs=epochs,
         device=device,
-        lr=(1e-2, 1e-4),
+        lr=(1e-3, 1e-8),
+        # ce_only=True,
         save_path_best=os.path.join(output_dir, "best.pth"),
         save_path_last=os.path.join(output_dir, "last.pth"),
     )

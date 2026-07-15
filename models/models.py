@@ -124,32 +124,33 @@ class SpatialAnchorFiLM(Module):
 
         F_cond = (gamma + 1) * gconvout + beta
         return F_cond
-    
+
+
 class MetadataFiLM(nn.Module):
     def __init__(self, in_channels, meta_dim=4, hidden_dim=32):
         super().__init__()
-        
+
         self.mlp = nn.Sequential(
             nn.Linear(meta_dim, hidden_dim),
             nn.GELU(),
-            nn.Linear(hidden_dim, 2 * in_channels)
+            nn.Linear(hidden_dim, 2 * in_channels),
         )
-        
+
         nn.init.zeros_(self.mlp[-1].weight)
         nn.init.zeros_(self.mlp[-1].bias)
-        
+
     def forward(self, x, metadata):
         gamma, beta = self.mlp(metadata).chunk(2, dim=1)
-        
+
         gamma = gamma[:, :, None, None, None]
         beta = beta[:, :, None, None, None]
-        
+
         return (gamma + 1) * x + beta
+
 
 class SEBlock(Module):
     def __init__(self, in_channels):
         super().__init__()
-
 
         reduction_ratio = max(4, in_channels // 8)
 
@@ -172,12 +173,24 @@ class SEBlock(Module):
 
 
 class Encoder(Module):
-    def __init__(self, in_channels, out_channels, num_anchors=8, downsample=True):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        num_anchors=8,
+        metadata_film=True,
+        downsample=True,
+    ):
         super().__init__()
+
+        self.metadata_film = metadata_film
 
         self.ghost_conv = GhostConv3D(in_channels, out_channels, downscale=False)
         self.spatial_film = SpatialAnchorFiLM(out_channels, num_anchors=num_anchors)
-        self.meta_film = MetadataFiLM(out_channels)
+        
+        
+        if metadata_film:
+            self.meta_film = MetadataFiLM(out_channels)
 
         self.detail_preserve = nn.Sequential(
             nn.Conv3d(out_channels, out_channels, 3, 1, 1, groups=out_channels),
@@ -196,7 +209,9 @@ class Encoder(Module):
     def forward(self, f0_prime, S, T, metadata):
         convout = self.ghost_conv(f0_prime)
         conditioned = self.spatial_film(S, convout)
-        conditioned = self.meta_film(conditioned, metadata)
+        
+        if self.metadata_film:
+            conditioned = self.meta_film(conditioned, metadata)
 
         stage_resolution = conditioned.shape[2:]
         T_resized = F.interpolate(T, size=stage_resolution, mode="trilinear")
@@ -210,10 +225,10 @@ class Encoder(Module):
 
         out = self.max_pool(E_i)
         return out, E_i
-
+# final_upsample
 
 class MultiScaleSkipFusion(Module):
-    def __init__(self):
+    def __init__(self, downsampled):
         super().__init__()
 
         internal_channels = 64
@@ -315,7 +330,7 @@ class MultiScaleSkipFusion(Module):
         )
 
     def forward(self, E_1, E_2, E_3, E_4, input_shape):
-        
+
         h, w, d = input_shape
 
         E_hat_1 = self.proj_1(E_1)
@@ -324,16 +339,16 @@ class MultiScaleSkipFusion(Module):
         E_hat_4 = self.proj_4(E_4)
 
         skip_4 = self.out_proj_4(E_hat_2)
-        skip_4 = F.interpolate(skip_4, size=(h//2, w//2, d//2), mode="trilinear")
+        skip_4 = F.interpolate(skip_4, size=(h // 2, w // 2, d // 2), mode="trilinear")
 
         skip_3 = self.out_proj_3(E_hat_1)
-        skip_3 = F.interpolate(skip_3, size=(h//4, w//4, d//4), mode="trilinear")
+        skip_3 = F.interpolate(skip_3, size=(h // 4, w // 4, d // 4), mode="trilinear")
 
         # resizing encoder outputs for skip 2
-        up_2_1 = F.interpolate(E_hat_1, size=(h//8, w//8, d//8), mode="trilinear")
-        up_2_2 = F.interpolate(E_hat_2, size=(h//8, w//8, d//8), mode="trilinear")
-        up_2_3 = F.interpolate(E_hat_3, size=(h//8, w//8, d//8), mode="trilinear")
-        up_2_4 = F.interpolate(E_hat_4, size=(h//8, w//8, d//8), mode="trilinear")
+        up_2_1 = F.interpolate(E_hat_1, size=(h // 8, w // 8, d // 8), mode="trilinear")
+        up_2_2 = F.interpolate(E_hat_2, size=(h // 8, w // 8, d // 8), mode="trilinear")
+        up_2_3 = F.interpolate(E_hat_3, size=(h // 8, w // 8, d // 8), mode="trilinear")
+        up_2_4 = F.interpolate(E_hat_4, size=(h // 8, w // 8, d // 8), mode="trilinear")
 
         cat_2 = torch.cat([up_2_1, up_2_2, up_2_3, up_2_4], dim=1)
         logits_2 = self.controller_2(cat_2)
@@ -349,10 +364,18 @@ class MultiScaleSkipFusion(Module):
         skip_2 = self.out_proj_2(skip_2)
 
         # resizing encoder outputs for skip 1
-        up_1_1 = F.interpolate(E_hat_1, size=(h//16, w//16, d//16), mode="trilinear")
-        up_1_2 = F.interpolate(E_hat_2, size=(h//16, w//16, d//16), mode="trilinear")
-        up_1_3 = F.interpolate(E_hat_3, size=(h//16, w//16, d//16), mode="trilinear")
-        up_1_4 = F.interpolate(E_hat_4, size=(h//16, w//16, d//16), mode="trilinear")
+        up_1_1 = F.interpolate(
+            E_hat_1, size=(h // 16, w // 16, d // 16), mode="trilinear"
+        )
+        up_1_2 = F.interpolate(
+            E_hat_2, size=(h // 16, w // 16, d // 16), mode="trilinear"
+        )
+        up_1_3 = F.interpolate(
+            E_hat_3, size=(h // 16, w // 16, d // 16), mode="trilinear"
+        )
+        up_1_4 = F.interpolate(
+            E_hat_4, size=(h // 16, w // 16, d // 16), mode="trilinear"
+        )
 
         cat_1 = torch.cat([up_1_1, up_1_2, up_1_3, up_1_4], dim=1)
         logits_1 = self.controller_1(cat_1)
@@ -396,7 +419,7 @@ class Decoder(Module):
             stride=1,
             padding=0,
         )
-        
+
         self.blending = nn.Sequential(
             nn.Conv3d(
                 in_channels=in_channels,
@@ -405,9 +428,9 @@ class Decoder(Module):
                 stride=1,
                 padding=0,
             ),
-            nn.Softmax(dim=1)
+            nn.Softmax(dim=1),
         )
-        
+
         self.f1 = nn.Sequential(
             nn.Conv3d(
                 in_channels=in_channels,
@@ -420,13 +443,13 @@ class Decoder(Module):
             nn.GroupNorm(4, out_channels),
             nn.SiLU(),
         )
-        
+
         self.f2 = nn.Sequential(
             GhostConv3D(in_channels, out_channels, downscale=False, ratio=2),
             nn.GroupNorm(4, out_channels),
             nn.SiLU(),
         )
-        
+
         self.f3 = nn.Sequential(
             nn.Conv3d(in_channels, out_channels, kernel_size=1, stride=1, padding=0),
             nn.GroupNorm(4, out_channels),
@@ -434,7 +457,7 @@ class Decoder(Module):
         )
 
         self.se = SEBlock(out_channels)
-        
+
     def create_spb(self, anchors, volume_shape, device="cuda"):
         B, K, _ = anchors.shape
         D, H, W = volume_shape
@@ -459,40 +482,71 @@ class Decoder(Module):
         spb = self.create_spb(anchors, u.shape[2:], device=u.device)
         # print("SHAPE CHECK DECODER")
         # print(u.shape, spb.shape, skip.shape)
-        d_in = self.fuse_conv(torch.cat([u+spb, skip], dim=1))
+        d_in = self.fuse_conv(torch.cat([u + spb, skip], dim=1))
         pi = self.blending(d_in)
         f1_out = self.f1(d_in)
         f2_out = self.f2(d_in)
         f3_out = self.f3(d_in)
-        f_out = pi[:, 0:1, :, :, :] * f1_out + pi[:, 1:2, :, :, :] * f2_out + pi[:, 2:3, :, :, :] * f3_out
+        f_out = (
+            pi[:, 0:1, :, :, :] * f1_out
+            + pi[:, 1:2, :, :, :] * f2_out
+            + pi[:, 2:3, :, :, :] * f3_out
+        )
         out = self.se(f_out)
         return out
 
 
-
-
 class LightMedSeg(Module):
-    def __init__(self, n_classes=2, in_channels=5, num_anchors=8, downsample=True):
+    def __init__(
+        self,
+        n_classes=2,
+        in_channels=5,
+        num_anchors=8,
+        metadata_film=True,
+        downsample=True,
+    ):
         super().__init__()
-        
+
+        self.in_channels = in_channels
+        self.num_anchors = num_anchors
+        self.metadata_film = metadata_film
+
         self.embedding_stem = GhostConv3D(in_channels, 8, downscale=downsample)
-        
+
         self.anchor_detector = GlobalAnchorDetector(8, 8, num_anchors=num_anchors)
         self.lspm = LSPM()
-        self.E1 = Encoder(8, 8, num_anchors=num_anchors, downsample=True)
-        self.E2 = Encoder(8, 16, num_anchors=num_anchors, downsample=True)
-        self.E3 = Encoder(16, 32, num_anchors=num_anchors, downsample=True)
-        self.E4 = Encoder(32, 64, num_anchors=num_anchors, downsample=False)
+        self.E1 = Encoder(
+            8, 8, num_anchors=num_anchors, metadata_film=metadata_film, downsample=True
+        )
+        self.E2 = Encoder(
+            8, 16, num_anchors=num_anchors, metadata_film=metadata_film, downsample=True
+        )
+        self.E3 = Encoder(
+            16,
+            32,
+            num_anchors=num_anchors,
+            metadata_film=metadata_film,
+            downsample=True,
+        )
+        self.E4 = Encoder(
+            32,
+            64,
+            num_anchors=num_anchors,
+            metadata_film=metadata_film,
+            downsample=False,
+        )
         self.skip_fusion = MultiScaleSkipFusion()
         self.D1 = Decoder(64, 32, num_anchors=num_anchors, upsample=False)
         self.D2 = Decoder(32, 16, num_anchors=num_anchors, upsample=True)
         self.D3 = Decoder(16, 8, num_anchors=num_anchors, upsample=True)
         self.D4 = Decoder(8, 8, num_anchors=num_anchors, upsample=True)
-        self.segmentation_head = nn.Conv3d(8, n_classes, kernel_size=1, stride=1, padding=0)
-        self.final_upsample = nn.ConvTranspose3d(n_classes, n_classes, kernel_size=2, stride=2)
+        self.segmentation_head = nn.Conv3d(
+            8, n_classes, kernel_size=1, stride=1, padding=0
+        )
+        # self.final_upsample = nn.ConvTranspose3d(
+        #     n_classes, n_classes, kernel_size=2, stride=2
+        # )
 
-
-    
     def forward(self, X, metadata):
         _, _, D, H, W = X.shape
         embedding = self.embedding_stem(X)
@@ -507,7 +561,9 @@ class LightMedSeg(Module):
         # del e2_out
         e4_out, E4 = self.E4(e3_out, anchors, T, metadata)
         # del e3_out
-        skip_1, skip_2, skip_3, skip_4 = self.skip_fusion(E1, E2, E3, E4, input_shape=X.shape[2:])
+        skip_1, skip_2, skip_3, skip_4 = self.skip_fusion(
+            E1, E2, E3, E4, input_shape=X.shape[2:]
+        )
         # del E1, E2, E3, E4
         # print(E1.shape, E2.shape, E3.shape, E4.shape)
         # print(skip_1.shape, skip_2.shape, skip_3.shape, skip_4.shape)
@@ -523,9 +579,9 @@ class LightMedSeg(Module):
         # del d3_out, skip_4
         logits = self.segmentation_head(d4_out)
         out = F.interpolate(logits, (D, H, W), mode="nearest")
-        # out = self.final_upsample(logits)   
+        # out = self.final_upsample(logits)
         return out
-    
+
     def debug_forward(self, X):
         embedding = self.embedding_stem(X)
         anchors = self.anchor_detector(embedding)
@@ -539,7 +595,9 @@ class LightMedSeg(Module):
         del e2_out
         e4_out, E4 = self.E4(e3_out, anchors, T)
         del e3_out
-        skip_1, skip_2, skip_3, skip_4 = self.skip_fusion(E1, E2, E3, E4, input_shape=X.shape[2:])
+        skip_1, skip_2, skip_3, skip_4 = self.skip_fusion(
+            E1, E2, E3, E4, input_shape=X.shape[2:]
+        )
         del E1, E2, E3, E4
         # print(E1.shape, E2.shape, E3.shape, E4.shape)
         # print(skip_1.shape, skip_2.shape, skip_3.shape, skip_4.shape)
@@ -554,14 +612,8 @@ class LightMedSeg(Module):
         d4_out = self.D4(d3_out, skip_4, anchors)
         del d3_out, skip_4
         logits = self.segmentation_head(d4_out)
-        
-        
-        
-        
-        # out = self.final_upsample(logits)   
+
+        # out = self.final_upsample(logits)
         out = F.interpolate(logits, (256, 256, 256), mode="trilinear")
-        
-    
-        
-        
+
         return out
