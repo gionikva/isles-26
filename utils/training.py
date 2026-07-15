@@ -110,13 +110,14 @@ def train_model(
         train_loop = tqdm(train_loader, desc='Train')
         
         for batch in train_loop:
-            inputs = batch['image'].to(device)
+            images = batch['image'].to(device)
+            metadata = batch['metadata'].to(device)
             targets = batch['mask'].to(device)
             
             optimizer.zero_grad(set_to_none=True)
             
             with autocast(device_type=device, dtype=torch.float32):
-                logits = model(inputs)
+                logits = model(images, metadata)
                 loss, l_dice, l_ce, l_bdry = criterion(logits, targets)
                 
             scaler.scale(loss).backward()
@@ -156,11 +157,12 @@ def train_model(
             val_loop = tqdm(val_loader, desc = 'Val')
             
             for batch in val_loop:
-                inputs = batch['image'].to(device)
+                images = batch['image'].to(device)
+                metadata = batch['metadata'].to(device)
                 targets=  batch['mask'].to(device)
                 
                 with autocast(device_type=device, dtype=torch.float32):
-                    logits = model(inputs)
+                    logits = model(images, metadata)
                     loss, l_dice, l_ce, l_bdry = criterion(logits, targets)
             
             val_loss += loss.item()

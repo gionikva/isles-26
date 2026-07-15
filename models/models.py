@@ -124,6 +124,27 @@ class SpatialAnchorFiLM(Module):
 
         F_cond = (gamma + 1) * gconvout + beta
         return F_cond
+    
+class MetadataFiLM(nn.Module):
+    def __init__(self, in_channels, meta_dim=4, hidden_dim=32):
+        super().__init__()
+        
+        self.mlp = nn.Sequential(
+            nn.Linear(meta_dim, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, 2 * in_channels)
+        )
+        
+        nn.init.zeros_(self.mlp[-1].weight)
+        nn.init.zeros_(self.mlp[-1].bias)
+        
+    def forward(self, x, metadata):
+        gamma, beta = self.mlp(metadata).chunk(2, dim=1)
+        
+        gamma = gamma[:, :, None, None, None]
+        beta = beta[:, :, None, None, None]
+        
+        return (gamma + 1) * x + beta
 
 class SEBlock(Module):
     def __init__(self, in_channels):
@@ -156,6 +177,7 @@ class Encoder(Module):
 
         self.ghost_conv = GhostConv3D(in_channels, out_channels, downscale=False)
         self.spatial_film = SpatialAnchorFiLM(out_channels, num_anchors=num_anchors)
+        self.meta_film = MetadataFiLM(out_channels)
 
         self.detail_preserve = nn.Sequential(
             nn.Conv3d(out_channels, out_channels, 3, 1, 1, groups=out_channels),
@@ -171,9 +193,10 @@ class Encoder(Module):
 
         self.max_pool = nn.MaxPool3d(2, 2) if downsample else nn.Identity()
 
-    def forward(self, f0_prime, S, T):
+    def forward(self, f0_prime, S, T, metadata):
         convout = self.ghost_conv(f0_prime)
         conditioned = self.spatial_film(S, convout)
+        conditioned = self.meta_film(conditioned, metadata)
 
         stage_resolution = conditioned.shape[2:]
         T_resized = F.interpolate(T, size=stage_resolution, mode="trilinear")
@@ -445,11 +468,7 @@ class Decoder(Module):
         out = self.se(f_out)
         return out
 
-class MetadataFiLM(nn.Module):
-    def __init__(self, meta_dim=4, feature_dim=64, hidden_dim=16):
-        super().__init__()
-    def forward(self, x, metadata):
-        pass
+
 
 
 class LightMedSeg(Module):
@@ -474,19 +493,19 @@ class LightMedSeg(Module):
 
 
     
-    def forward(self, X):
+    def forward(self, X, metadata):
         _, _, D, H, W = X.shape
         embedding = self.embedding_stem(X)
         anchors = self.anchor_detector(embedding)
         T, f0 = self.lspm(embedding)
         # print(T, f0, anchors)
-        e1_out, E1 = self.E1(f0, anchors, T)
+        e1_out, E1 = self.E1(f0, anchors, T, metadata)
         # print(e1_out.shape)
-        e2_out, E2 = self.E2(e1_out, anchors, T)
+        e2_out, E2 = self.E2(e1_out, anchors, T, metadata)
         # del e1_out
-        e3_out, E3 = self.E3(e2_out, anchors, T)
+        e3_out, E3 = self.E3(e2_out, anchors, T, metadata)
         # del e2_out
-        e4_out, E4 = self.E4(e3_out, anchors, T)
+        e4_out, E4 = self.E4(e3_out, anchors, T, metadata)
         # del e3_out
         skip_1, skip_2, skip_3, skip_4 = self.skip_fusion(E1, E2, E3, E4, input_shape=X.shape[2:])
         # del E1, E2, E3, E4
