@@ -150,7 +150,7 @@ class ISLESDataset(Dataset):
         mask = self.standardize_grid(mask.unsqueeze(0))
         if self.mask_add_bgc:
             bg = 1.0 - mask
-            mask = torch.cat([mask, bg], dim = 0)
+            mask = torch.cat([bg, mask], dim = 0)
         meta = self.parse_metadata(self.metadata[idx])
         # days_post_stroke = torch.tensor(meta['DAYS_POST_STROKE'][0])
         # print(meta)

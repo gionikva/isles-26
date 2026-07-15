@@ -90,7 +90,7 @@ def visualize_prediction(model, image, mask, cropped=True, debug=False):
     model = model.cpu()
     fwd = model.debug_forward if debug else model.forward
     if not cropped:
-        prediction = 1.0 - torch.argmax(fwd(image.unsqueeze(0)), dim=1)
+        prediction = torch.argmax(fwd(image.unsqueeze(0)), dim=1)
     else:
         prediction = predict_in_octants(model, image.unsqueeze(0))
     
