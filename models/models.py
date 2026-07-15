@@ -472,10 +472,10 @@ class Decoder(Module):
 
 
 class LightMedSeg(Module):
-    def __init__(self, n_classes=2, num_anchors=8, downsample=True):
+    def __init__(self, n_classes=2, in_channels=5, num_anchors=8, downsample=True):
         super().__init__()
         
-        self.embedding_stem = GhostConv3D(1, 8, downscale=downsample)
+        self.embedding_stem = GhostConv3D(in_channels, 8, downscale=downsample)
         
         self.anchor_detector = GlobalAnchorDetector(8, 8, num_anchors=num_anchors)
         self.lspm = LSPM()

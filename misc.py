@@ -9,29 +9,31 @@ def main():
     img = dataset[500]['image'].numpy()
     mask = dataset[500]['mask'].numpy()
     meta = dataset[500]['metadata']
-    print(meta)
     
-    def show_slices(slices):
-        fig, axes = plt.subplots(1, len(slices))
-        for i, (mri, mask) in enumerate(slices):
-            axes[i].imshow(mri.T, cmap="gray", origin="lower")
-            axes[i].imshow(mask.T, cmap='autumn', alpha=0.3, interpolation='none')
+    print(mask[0] + mask[1])
+    # print(meta)
+    
+    # def show_slices(slices):
+    #     fig, axes = plt.subplots(1, len(slices))
+    #     for i, (mri, mask) in enumerate(slices):
+    #         axes[i].imshow(mri.T, cmap="gray", origin="lower")
+    #         axes[i].imshow(mask.T, cmap='autumn', alpha=0.3, interpolation='none')
             
-    print(img.shape)
+    # print(img.shape)
 
-    mri_0 = img[60, :, :]
-    mask_0 = mask[60, :, :]
+    # mri_0 = img[60, :, :]
+    # mask_0 = mask[60, :, :]
     
-    mri_1 = img[:, 60, :]
-    mask_1 = mask[:, 60, :]
+    # mri_1 = img[:, 60, :]
+    # mask_1 = mask[:, 60, :]
     
-    mri_2 = img[:, :, 60]
-    mask_2 = mask[:, :, 60]
+    # mri_2 = img[:, :, 60]
+    # mask_2 = mask[:, :, 60]
     
    
-    show_slices([(mri_0, mask_0), (mri_1, mask_1), (mri_2, mask_2)])
-    plt.tight_layout()
-    plt.show()
+    # show_slices([(mri_0, mask_0), (mri_1, mask_1), (mri_2, mask_2)])
+    # plt.tight_layout()
+    # plt.show()
 
 def check_chronicity():
     meta_iter = MetadataIterator()
