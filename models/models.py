@@ -331,9 +331,8 @@ class MultiScaleSkipFusion(Module):
             padding=0,
         )
 
-    def forward(self, E_1, E_2, E_3, E_4, input_shape):
+    def forward(self, E_1, E_2, E_3, E_4):
 
-        h, w, d = input_shape
 
         size_4 = E_1.shape[2:]
         size_3 = E_2.shape[2:]
@@ -562,7 +561,7 @@ class LightMedSeg(Module):
         e4_out, E4 = self.E4(e3_out, anchors, T, metadata)
         # del e3_out
         skip_1, skip_2, skip_3, skip_4 = self.skip_fusion(
-            E1, E2, E3, E4, input_shape=X.shape[2:]
+            E1, E2, E3, E4
         )
         # del E1, E2, E3, E4
         # print(E1.shape, E2.shape, E3.shape, E4.shape)
@@ -582,38 +581,38 @@ class LightMedSeg(Module):
         # out = self.final_upsample(logits)
         return out
 
-    def debug_forward(self, X):
-        embedding = self.embedding_stem(X)
-        anchors = self.anchor_detector(embedding)
-        T, f0 = self.lspm(embedding)
-        # print(T, f0, anchors)
-        e1_out, E1 = self.E1(f0, anchors, T)
-        # print(e1_out.shape)
-        e2_out, E2 = self.E2(e1_out, anchors, T)
-        del e1_out
-        e3_out, E3 = self.E3(e2_out, anchors, T)
-        del e2_out
-        e4_out, E4 = self.E4(e3_out, anchors, T)
-        del e3_out
-        skip_1, skip_2, skip_3, skip_4 = self.skip_fusion(
-            E1, E2, E3, E4, input_shape=X.shape[2:]
-        )
-        del E1, E2, E3, E4
-        # print(E1.shape, E2.shape, E3.shape, E4.shape)
-        # print(skip_1.shape, skip_2.shape, skip_3.shape, skip_4.shape)
-        # print(e1_out.shape, e2_out.shape, e3_out.shape, e4_out.shape)
+    # def debug_forward(self, X):
+    #     embedding = self.embedding_stem(X)
+    #     anchors = self.anchor_detector(embedding)
+    #     T, f0 = self.lspm(embedding)
+    #     # print(T, f0, anchors)
+    #     e1_out, E1 = self.E1(f0, anchors, T)
+    #     # print(e1_out.shape)
+    #     e2_out, E2 = self.E2(e1_out, anchors, T)
+    #     del e1_out
+    #     e3_out, E3 = self.E3(e2_out, anchors, T)
+    #     del e2_out
+    #     e4_out, E4 = self.E4(e3_out, anchors, T)
+    #     del e3_out
+    #     skip_1, skip_2, skip_3, skip_4 = self.skip_fusion(
+    #         E1, E2, E3, E4, input_shape=X.shape[2:]
+    #     )
+    #     del E1, E2, E3, E4
+    #     # print(E1.shape, E2.shape, E3.shape, E4.shape)
+    #     # print(skip_1.shape, skip_2.shape, skip_3.shape, skip_4.shape)
+    #     # print(e1_out.shape, e2_out.shape, e3_out.shape, e4_out.shape)
 
-        d1_out = self.D1(e4_out, skip_1, anchors)
-        del e4_out, skip_1
-        d2_out = self.D2(d1_out, skip_2, anchors)
-        del d1_out, skip_2
-        d3_out = self.D3(d2_out, skip_3, anchors)
-        del d2_out, skip_3
-        d4_out = self.D4(d3_out, skip_4, anchors)
-        del d3_out, skip_4
-        logits = self.segmentation_head(d4_out)
+    #     d1_out = self.D1(e4_out, skip_1, anchors)
+    #     del e4_out, skip_1
+    #     d2_out = self.D2(d1_out, skip_2, anchors)
+    #     del d1_out, skip_2
+    #     d3_out = self.D3(d2_out, skip_3, anchors)
+    #     del d2_out, skip_3
+    #     d4_out = self.D4(d3_out, skip_4, anchors)
+    #     del d3_out, skip_4
+    #     logits = self.segmentation_head(d4_out)
 
-        # out = self.final_upsample(logits)
-        out = F.interpolate(logits, (256, 256, 256), mode="trilinear")
+    #     # out = self.final_upsample(logits)
+    #     out = F.interpolate(logits, (256, 256, 256), mode="trilinear")
 
-        return out
+    #     return out
