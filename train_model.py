@@ -33,6 +33,14 @@ def main():
         default=40,
     )
     parser.add_argument(
+        "-b",
+        "--batch-size",
+        help="Batch size.",
+        type=int,
+        default=1
+    )
+    
+    parser.add_argument(
         "-r",
         "--range",
         help="Range of datapoints to train on in the format start_idx:end_idx.",
@@ -65,12 +73,11 @@ def main():
 
     output_dir = args.output
     epochs = args.epochs
+    batch_size = args.batch_size
     num_anchors = args.num_anchors
     crop = args.crop
     extra_channels = args.add_transformed_channels
     metadata_film = not args.ignore_metadata
-
-    BATCH_SIZE = 8 if crop else 1
     downsample = not crop
 
     rng = args.range
@@ -92,8 +99,8 @@ def main():
 
     # print(len(train_dataset))
 
-    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=True)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
     model = LightMedSeg(
         n_classes=2,
         in_channels=5 if extra_channels else 1,

@@ -187,8 +187,7 @@ class Encoder(Module):
 
         self.ghost_conv = GhostConv3D(in_channels, out_channels, downscale=False)
         self.spatial_film = SpatialAnchorFiLM(out_channels, num_anchors=num_anchors)
-        
-        
+
         if metadata_film:
             self.meta_film = MetadataFiLM(out_channels)
 
@@ -209,7 +208,7 @@ class Encoder(Module):
     def forward(self, f0_prime, S, T, metadata):
         convout = self.ghost_conv(f0_prime)
         conditioned = self.spatial_film(S, convout)
-        
+
         if self.metadata_film:
             conditioned = self.meta_film(conditioned, metadata)
 
@@ -225,7 +224,10 @@ class Encoder(Module):
 
         out = self.max_pool(E_i)
         return out, E_i
+
+
 # final_upsample
+
 
 class MultiScaleSkipFusion(Module):
     def __init__(self, downsampled):
@@ -333,22 +335,27 @@ class MultiScaleSkipFusion(Module):
 
         h, w, d = input_shape
 
+        size_4 = E_1.shape[2:]
+        size_3 = E_2.shape[2:]
+        size_2 = E_3.shape[2:]
+        size_1 = E_4.shape[2:]
+
         E_hat_1 = self.proj_1(E_1)
         E_hat_2 = self.proj_2(E_2)
         E_hat_3 = self.proj_3(E_3)
         E_hat_4 = self.proj_4(E_4)
 
         skip_4 = self.out_proj_4(E_hat_2)
-        skip_4 = F.interpolate(skip_4, size=(h // 2, w // 2, d // 2), mode="trilinear")
+        skip_4 = F.interpolate(skip_4, size=size_4, mode="trilinear")
 
         skip_3 = self.out_proj_3(E_hat_1)
-        skip_3 = F.interpolate(skip_3, size=(h // 4, w // 4, d // 4), mode="trilinear")
+        skip_3 = F.interpolate(skip_3, size=size_3, mode="trilinear")
 
         # resizing encoder outputs for skip 2
-        up_2_1 = F.interpolate(E_hat_1, size=(h // 8, w // 8, d // 8), mode="trilinear")
-        up_2_2 = F.interpolate(E_hat_2, size=(h // 8, w // 8, d // 8), mode="trilinear")
-        up_2_3 = F.interpolate(E_hat_3, size=(h // 8, w // 8, d // 8), mode="trilinear")
-        up_2_4 = F.interpolate(E_hat_4, size=(h // 8, w // 8, d // 8), mode="trilinear")
+        up_2_1 = F.interpolate(E_hat_1, size=size_2, mode="trilinear")
+        up_2_2 = F.interpolate(E_hat_2, size=size_2, mode="trilinear")
+        up_2_3 = F.interpolate(E_hat_3, size=size_2, mode="trilinear")
+        up_2_4 = F.interpolate(E_hat_4, size=size_2, mode="trilinear")
 
         cat_2 = torch.cat([up_2_1, up_2_2, up_2_3, up_2_4], dim=1)
         logits_2 = self.controller_2(cat_2)
@@ -364,18 +371,10 @@ class MultiScaleSkipFusion(Module):
         skip_2 = self.out_proj_2(skip_2)
 
         # resizing encoder outputs for skip 1
-        up_1_1 = F.interpolate(
-            E_hat_1, size=(h // 16, w // 16, d // 16), mode="trilinear"
-        )
-        up_1_2 = F.interpolate(
-            E_hat_2, size=(h // 16, w // 16, d // 16), mode="trilinear"
-        )
-        up_1_3 = F.interpolate(
-            E_hat_3, size=(h // 16, w // 16, d // 16), mode="trilinear"
-        )
-        up_1_4 = F.interpolate(
-            E_hat_4, size=(h // 16, w // 16, d // 16), mode="trilinear"
-        )
+        up_1_1 = F.interpolate(E_hat_1, size=size_1, mode="trilinear")
+        up_1_2 = F.interpolate(E_hat_2, size=size_1, mode="trilinear")
+        up_1_3 = F.interpolate(E_hat_3, size=size_1, mode="trilinear")
+        up_1_4 = F.interpolate(E_hat_4, size=size_1, mode="trilinear")
 
         cat_1 = torch.cat([up_1_1, up_1_2, up_1_3, up_1_4], dim=1)
         logits_1 = self.controller_1(cat_1)
@@ -482,6 +481,7 @@ class Decoder(Module):
         spb = self.create_spb(anchors, u.shape[2:], device=u.device)
         # print("SHAPE CHECK DECODER")
         # print(u.shape, spb.shape, skip.shape)
+
         d_in = self.fuse_conv(torch.cat([u + spb, skip], dim=1))
         pi = self.blending(d_in)
         f1_out = self.f1(d_in)
@@ -535,7 +535,7 @@ class LightMedSeg(Module):
             metadata_film=metadata_film,
             downsample=False,
         )
-        self.skip_fusion = MultiScaleSkipFusion()
+        self.skip_fusion = MultiScaleSkipFusion(False)
         self.D1 = Decoder(64, 32, num_anchors=num_anchors, upsample=False)
         self.D2 = Decoder(32, 16, num_anchors=num_anchors, upsample=True)
         self.D3 = Decoder(16, 8, num_anchors=num_anchors, upsample=True)

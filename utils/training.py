@@ -117,7 +117,7 @@ def train_model(
         train_loop = tqdm(train_loader, desc='Train')
         
         for batch in train_loop:
-            print(type(batch))
+            # print(type(batch))
             images = batch['image'].to(device)
             metadata = batch['metadata'].to(device)
             targets = batch['mask'].to(device)
