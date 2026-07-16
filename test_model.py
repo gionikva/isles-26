@@ -3,12 +3,12 @@ import napari
 import numpy as np
 import torch
 from torch.amp import autocast
-from models.models import (
-    GlobalAnchorDetector,
-    GhostConv3D,
-    LightMedSeg,
-    SpatialAnchorFiLM,
-)
+# from models.models import (
+#     GlobalAnchorDetector,
+#     GhostConv3D,
+#     LightMedSeg,
+#     SpatialAnchorFiLM,
+# )
 from models.lspm import LSPM
 from utils.dataset import ISLESDataset
 from monai.transforms import ResizeWithPadOrCrop

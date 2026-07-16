@@ -9,7 +9,8 @@ from models.common import (
     GlobalAnchorDetector,
     Encoder,
     MultiScaleSkipFusion,
-    Decoder
+    Decoder,
+    BoundaryRefinement
 )
 
 
@@ -18,18 +19,36 @@ class LMSBR(Module):
     def __init__(
         self,
         n_classes=2,
-        in_channels=5,
         num_anchors=8,
         metadata_film=True,
-        downsample=True,
     ):
         super().__init__()
-
+        
+        self._hyperparams = {
+            'n_classes': n_classes,
+            'num_anchors': num_anchors,
+            'metadata_film': metadata_film
+        }
+        
+        self.base = LightMedSeg(
+            n_classes=n_classes,
+            in_channels=1,
+            num_anchors=num_anchors,
+            metadata_film=metadata_film,
+            downsample=True
+        )
        
+        self.br = BoundaryRefinement()
+    
+    def hyperparams(self):
+        return self._hyperparams
 
     def forward(self, X, metadata):
-        pass
-        # return out
+        original = X[:, 0:1, :, :, :]
+        edges = X[:, 1:4, :, :, :]
+        coarse = self.base(original, metadata)
+        refined = self.br(coarse, edges)
+        return refined
 
 
 
@@ -45,6 +64,14 @@ class LightMedSeg(Module):
         downsample=True,
     ):
         super().__init__()
+        
+        self._hyperparams = {
+            'n_classes': n_classes,
+            'in_channels': in_channels,
+            'num_anchors': num_anchors,
+            'metadata_film': metadata_film,
+            'downsample': downsample
+        }
 
         self.in_channels = in_channels
         self.num_anchors = num_anchors
@@ -85,6 +112,9 @@ class LightMedSeg(Module):
         # self.final_upsample = nn.ConvTranspose3d(
         #     n_classes, n_classes, kernel_size=2, stride=2
         # )
+    
+    def hyperparams(self):
+        return self._hyperparams
 
     def forward(self, X, metadata):
         _, _, D, H, W = X.shape

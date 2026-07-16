@@ -104,7 +104,7 @@ class ISLESDataset(Dataset):
         split="train",
         range=None,
         mask_add_bgc=True,
-        add_extra_channels=False,
+        add_edges=False,
         random_crop=False,
         random_seed=42,
     ):
@@ -121,7 +121,7 @@ class ISLESDataset(Dataset):
         #     spatial_size=(256, 256, 256), mode="constant"
         # )
 
-        feature_keys = ["image", "image_edges", "image_contrast"]
+        feature_keys = ["image", "image_edges"]
 
         transform_list = [
             LoadImaged(keys=["image", "mask"]),
@@ -146,26 +146,17 @@ class ISLESDataset(Dataset):
             image_threshold=0,
         )
         
-        extra_transforms = [
+        edges = [
             # 1. Duplicate the raw image into two new temporary keys
             CopyItemsd(
-                keys=["image", "image"],
+                keys=["image"],
                 times=1,
-                names=["image_edges", "image_contrast"],
+                names=["image_edges"],
             ),
             # 2. Channel A: Generate the Edge Map
             SobelGradientsd(keys=["image_edges"]),
             # 3. Channel B: Generate the High-Contrast Map
             # Clip the bottom 5% and top 5% of intensities, stretch the rest to [0, 1]
-            ScaleIntensityRangePercentilesd(
-                keys=["image_contrast"],
-                lower=5.0,
-                upper=95.0,
-                b_min=0.0,
-                b_max=1.0,
-                clip=True,
-                relative=False,
-            ),
             # Normalize the base image and edge map to [0, 1] as well for consistency
             ScaleIntensityRangePercentilesd(
                 keys=["image", "image_edges"],
@@ -180,13 +171,13 @@ class ISLESDataset(Dataset):
             # This turns a (1, D, H, W) tensor into a (3, D, H, W) tensor
             ConcatItemsd(keys=feature_keys, name="image", dim=0),
             # 5. Clean up the dictionary so it doesn't waste RAM
-            DeleteItemsd(keys=["image_edges", "image_contrast"]),
+            DeleteItemsd(keys=["image_edges"]),
         ]
 
       
         
-        if add_extra_channels:
-            transform_list.extend(extra_transforms)
+        if add_edges:
+            transform_list.extend(edges)
             
         if random_crop:
             transform_list.append(cropper)
