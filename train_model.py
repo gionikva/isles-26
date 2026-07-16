@@ -298,7 +298,7 @@ def main():
         model_type=args.model,
         num_epochs=epochs,
         device=device,
-        lr=(1e-3, 1e-8),
+        lr=(5e-4, 1e-8),
         # ce_only=True,
         save_path_best=os.path.join(output_dir, "best.pth"),
         save_path_last=os.path.join(output_dir, "last.pth"),
