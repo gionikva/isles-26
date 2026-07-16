@@ -492,15 +492,15 @@ class Decoder(Module):
         return out
     
 class BoundaryRefinement(nn.Module):
-    def __init__(self, in_channels=5, hidden_channels=8):
+    def __init__(self, in_channels=5, hidden_channels=16):
         super().__init__()
         self.refine_block = nn.Sequential(
-            GhostConv3D(in_channels, hidden_channels, False, 2),
-            # nn.Conv3d(in_channels, hidden_channels, kernel_size=3, padding=1),
+            # GhostConv3D(in_channels, hidden_channels, False, 2),
+            nn.Conv3d(in_channels, hidden_channels, kernel_size=3, padding=1),
             nn.GroupNorm(4, hidden_channels),
             nn.GELU(),
-            # nn.Conv3d(hidden_channels, hidden_channels, kernel_size=3, padding=1),
-            GhostConv3D(hidden_channels, hidden_channels, False, 2),
+            nn.Conv3d(hidden_channels, hidden_channels, kernel_size=3, padding=1),
+            # GhostConv3D(hidden_channels, hidden_channels, False, 2),
             nn.GroupNorm(4, hidden_channels),
             nn.GELU(),
             nn.Conv3d(hidden_channels, 2, kernel_size=1) # Outputs the final logits
