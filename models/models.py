@@ -42,14 +42,16 @@ class LMSBR(Module):
     
     def hyperparams(self):
         return self._hyperparams
-
-    def forward(self, X, metadata):
+    
+    def forward_train(self, X, metadata):
         original = X[:, 0:1, :, :, :]
         edges = X[:, 1:4, :, :, :]
         coarse = self.base(original, metadata)
         refined = self.br(coarse, edges)
-        return refined
-
+        return refined, coarse
+    
+    def forward(self, X, metadata):
+        return self.forward_train(X, metadata)[0]
 
 
 

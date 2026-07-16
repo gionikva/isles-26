@@ -6,12 +6,37 @@ from utils.dataset import ISLESDataset, OctantCropDataset
 from utils.loss import LightMedSegLoss
 from torch.utils.data import DataLoader, random_split
 import torch.optim as optim
+from pathlib import Path
 from torch.amp import autocast, GradScaler
 from tqdm import tqdm
 
 # from test_model import visualize_prediction
 
 from tqdm import tqdm
+
+
+def get_logits_losses(model, images, metadata, targets, criterion, model_type):
+    if model_type == "base":
+        logits = model(images, metadata)
+
+        loss, l_dice, l_ce, l_bdry = criterion(logits, targets)
+
+        return logits, (loss, l_dice, l_ce, l_bdry)
+
+    else:
+        refined, coarse = model.forward_train(images, metadata)
+
+        loss_coarse, l_dice_c, l_ce_c, l_bdry_c = criterion(coarse, targets)
+        loss_refined, l_dice_r, l_ce_r, l_bdry_r = criterion(refined, targets)
+
+        # 4. Combine losses (give the refined mask slightly more weight)
+        loss = (0.5 * loss_coarse) + loss_refined
+
+        l_dice = (0.5 * l_dice_c) + l_dice_r
+        l_ce = (0.5 * l_ce_c) + l_ce_r
+        l_bdry = (0.5 * l_bdry_c) + l_bdry_r
+
+        return refined, (loss, l_dice, l_ce, l_bdry)
 
 
 def train_model(
@@ -25,108 +50,112 @@ def train_model(
     ce_only=False,
     device="cuda",
     save_path_best="lightmedseg_best.pth",
-    save_path_last="lightmedseg_last.pth"
+    save_path_last="lightmedseg_last.pth",
 ):
-    
+
     model = model.to(device)
-    
+
     optimizer = optim.AdamW(model.parameters(), lr=lr[0], weight_decay=0)
-    criterion = LightMedSegLoss(num_classes=2, ce_only=ce_only) 
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, eta_min=lr[1], T_max=num_epochs)
+    criterion = LightMedSegLoss(num_classes=2, ce_only=ce_only)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, eta_min=lr[1], T_max=num_epochs
+    )
     scaler = GradScaler()
-    
-    best_val_loss = float('inf')
-    
+
+    best_val_loss = float("inf")
+
     for epoch in range(num_epochs):
         print(f"Epoch {epoch+1}/{num_epochs}\n")
-        
+
         # ==============
         # Training phase
         # ==============
         model.train()
-        
+
         train_loss, train_dice, train_ce, train_bdry = 0.0, 0.0, 0.0, 0.0
-        
-        train_loop = tqdm(train_loader, desc='Train')
-        
+
+        train_loop = tqdm(train_loader, desc="Train")
+
         for batch in train_loop:
-            
-            
-            images = batch['image'].to(device)
-            metadata = batch['metadata'].to(device)
-            targets = batch['mask'].to(device)
-            
+
+            images = batch["image"].to(device)
+            metadata = batch["metadata"].to(device)
+            targets = batch["mask"].to(device)
+
+            # print("BATCH SHAPE:", images.shape)
+
             optimizer.zero_grad(set_to_none=True)
-                        
+
             # with autocast(device_type=device, dtype=torch.float32):
-            logits = model(images, metadata)
-            loss, l_dice, l_ce, l_bdry = criterion(logits, targets)
-                
-                
+            logits, (loss, l_dice, l_ce, l_bdry) = get_logits_losses(
+                model, images, metadata, targets, criterion, model_type
+            )
+
             loss.backward()
             optimizer.step()
-            
+
             # scaler.scale(loss).backward()
             # scaler.step(optimizer)
             # scaler.update()
-            
+
             train_loss += loss.item()
             train_dice += l_dice.item()
             train_ce += l_ce.item()
             train_bdry += l_bdry.item()
-            
+
             free_mem, total_mem = torch.cuda.mem_get_info()
-            
-            used_mem = (total_mem - free_mem) / 2 ** 20
-            total_mem = total_mem / 2 ** 20
-            
+
+            used_mem = (total_mem - free_mem) / 2**20
+            total_mem = total_mem / 2**20
+
             train_loop.set_postfix(
-                Tot=f"{loss.item():.3f}", 
-                Dice=f"{l_dice.item():.3f}", 
-                CE=f"{l_ce.item():.3f}", 
+                Tot=f"{loss.item():.3f}",
+                Dice=f"{l_dice.item():.3f}",
+                CE=f"{l_ce.item():.3f}",
                 Bdry=f"{l_bdry.item():.3f}",
-                Mem=f"{used_mem}MiB/{total_mem}MiB"
+                Mem=f"{used_mem}MiB/{total_mem}MiB",
             )
-            
+
         num_train_batches = len(train_loader)
         avg_train_loss = train_loss / num_train_batches
         scheduler.step()
-        
+
         # ================
         # Validation phase
         # ================
-        
+
         model.eval()
         val_loss, val_dice, val_ce, val_bdry = 0.0, 0.0, 0.0, 0.0
-        
+
         with torch.no_grad():
-            val_loop = tqdm(val_loader, desc = 'Val')
-            
+            val_loop = tqdm(val_loader, desc="Val")
+
             for batch in val_loop:
-                images = batch['image'].to(device)
-                metadata = batch['metadata'].to(device)
-                targets=  batch['mask'].to(device)
-                
+                images = batch["image"].to(device)
+                metadata = batch["metadata"].to(device)
+                targets = batch["mask"].to(device)
+
                 with autocast(device_type=device, dtype=torch.float32):
-                    logits = model(images, metadata)
-                    loss, l_dice, l_ce, l_bdry = criterion(logits, targets)
-            
+                    _, (loss, l_dice, l_ce, l_bdry) = get_logits_losses(
+                        model, images, metadata, targets, criterion, model_type
+                    )
+
                 val_loss += loss.item()
                 val_dice += l_dice.item()
                 val_ce += l_ce.item()
                 val_bdry += l_bdry.item()
-                
+
                 val_loop.set_postfix(
-                    Tot=f"{loss.item():.3f}", 
-                    Dice=f"{l_dice.item():.3f}", 
-                    CE=f"{l_ce.item():.3f}", 
-                    Bdry=f"{l_bdry.item():.3f}"
+                    Tot=f"{loss.item():.3f}",
+                    Dice=f"{l_dice.item():.3f}",
+                    CE=f"{l_ce.item():.3f}",
+                    Bdry=f"{l_bdry.item():.3f}",
                 )
-        
+
         num_val_batches = len(val_loader)
         avg_val_loss = val_loss / num_val_batches
         current_lr = scheduler.get_last_lr()[0]
-        
+
         print(
             f"Train | Tot: {avg_train_loss:.4f}  Dice: {train_dice/num_train_batches:.4f}  "
             f"CE: {train_ce/num_train_batches:.4f}  Bdry: {train_bdry/num_train_batches:.4f}"
@@ -135,27 +164,28 @@ def train_model(
             f"Val   | Tot: {avg_val_loss:.4f}  Dice: {val_dice/num_val_batches:.4f}  "
             f"CE: {val_ce/num_val_batches:.4f}  Bdry: {val_bdry/num_val_batches:.4f} | LR: {current_lr:.2e}"
         )
-        
+
         # ==========================
         #       CHECKPOINTING
         # ==========================
-        
+
         save_dict = {
-            'epoch': epoch,
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'val_loss': avg_val_loss,
-            'model_type': model_type,
-            'hyperparams': model.hyperparams()
-        }   
+            "epoch": epoch,
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "val_loss": avg_val_loss,
+            "model_type": model_type,
+            "hyperparams": model.hyperparams(),
+        }
 
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
-            print(f"--> Validation loss improved to {best_val_loss:.4f}. Saving checkpoint!")
+            print(
+                f"--> Validation loss improved to {best_val_loss:.4f}. Saving checkpoint!"
+            )
             torch.save(save_dict, save_path_best)
 
         torch.save(save_dict, save_path_last)
-            
 
 
 def main():
@@ -224,7 +254,7 @@ def main():
     data_range = None if rng == None else [int(idx) for idx in rng.split(":")]
     print(data_range)
 
-    dataset = ISLESDataset(range=data_range, add_edges=add_edges, random_crop=True)
+    dataset = ISLESDataset(range=data_range, add_edges=add_edges, random_crop=crop)
 
     print(len(dataset))
 
@@ -254,8 +284,12 @@ def main():
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    if not os.path.isdir(output_dir):
-        os.mkdir(output_dir)
+
+    # out_dir = Path(output_dir)
+
+    # for part in 
+
+    os.makedirs(output_dir, exist_ok=True)
 
     train_model(
         model,

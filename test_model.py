@@ -9,33 +9,32 @@ from torch.amp import autocast
 #     LightMedSeg,
 #     SpatialAnchorFiLM,
 # )
-from models.lspm import LSPM
 from utils.dataset import ISLESDataset
-from monai.transforms import ResizeWithPadOrCrop
+from models.models import LightMedSeg, LMSBR
 import torch.nn.functional as F
 
 
-def test_components():
-    anchor_detector = GlobalAnchorDetector(1, 16, 8)
-    ghost_conv = GhostConv3D(1, 8, downscale=False)
-    lspm = LSPM()
-    spatial_film = SpatialAnchorFiLM(8, 8)
-    dataset = ISLESDataset()
+# def test_components():
+#     anchor_detector = GlobalAnchorDetector(1, 16, 8)
+#     ghost_conv = GhostConv3D(1, 8, downscale=False)
+#     lspm = LSPM()
+#     spatial_film = SpatialAnchorFiLM(8, 8)
+#     dataset = ISLESDataset()
 
-    img = dataset[500]["image"].numpy()
-    mask = dataset[500]["mask"].numpy()
+#     img = dataset[500]["image"].numpy()
+#     mask = dataset[500]["mask"].numpy()
 
-    x = torch.tensor(img, dtype=torch.float)[None, None, ...]
-    print(x.shape)
-    y = anchor_detector(x)
-    f0 = ghost_conv(x)
-    T, out = lspm(f0)
+#     x = torch.tensor(img, dtype=torch.float)[None, None, ...]
+#     print(x.shape)
+#     y = anchor_detector(x)
+#     f0 = ghost_conv(x)
+#     T, out = lspm(f0)
 
-    anchors = torch.randn(1, 8, 3)
+#     anchors = torch.randn(1, 8, 3)
 
-    test = spatial_film(anchors, f0)
+#     test = spatial_film(anchors, f0)
 
-    print(f0.shape)
+#     print(f0.shape)
 
 
 def predict_in_octants(model, image, num_classes=2):
@@ -182,9 +181,11 @@ def test_model():
     # map_location ensures it loads correctly even if moving from GPU to CPU
     checkpoint = torch.load(checkpoint_path, map_location=device)
 
-    add_extra_channels = checkpoint["in_channels"] == 5
+    model_type = checkpoint["model_type"]
 
-    dataset = ISLESDataset(random_crop=False, add_extra_channels=add_extra_channels)
+    add_edges = model_type == "refined"
+
+    dataset = ISLESDataset(random_crop=False, add_edges=add_edges)
 
     item = dataset[0]
 
@@ -192,16 +193,28 @@ def test_model():
     mask = item["mask"]
     metadata = item["metadata"]
 
-    print(torch.sum(img))
-    print(mask.shape)
+    # print(torch.sum(img))
+    # print(mask.shape)
 
     # print (final_image.shape)
-    model = LightMedSeg(
-        n_classes=2,
-        in_channels=checkpoint["in_channels"],
-        num_anchors=checkpoint["num_anchors"],
-        metadata_film=checkpoint["metadata_film"]
-    )
+    
+    hparams = checkpoint['hyperparams']
+    
+    if model_type == "base":
+    
+        model = LightMedSeg(
+            n_classes=2,
+            in_channels=hparams["in_channels"],
+            num_anchors=hparams["num_anchors"],
+            metadata_film=hparams["metadata_film"],
+            downsample=hparams['downsample']
+        )
+    else:
+        model = LMSBR(
+            n_classes=2,
+            num_anchors=hparams["num_anchors"],
+            metadata_film=hparams["metadata_film"],
+        )
 
     # 4. Inject the saved weights into the model
     model.load_state_dict(checkpoint["model_state_dict"])
