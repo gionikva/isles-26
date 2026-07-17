@@ -282,6 +282,8 @@ def main():
             metadata_film=metadata_film,
         )
 
+    print(sum(p.numel() for p in model.parameters() if p.requires_grad))
+    
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
 

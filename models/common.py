@@ -70,7 +70,7 @@ class GlobalAnchorDetector(Module):
         n_groups = 4
 
         # mlp hidden layer size
-        hidden_width = 128
+        hidden_width = 512
 
         self.phi = nn.Sequential(
             nn.Conv3d(in_channels, out_channels, kernel, stride, padding),
@@ -121,11 +121,13 @@ class SpatialAnchorFiLM(Module):
 
 
 class MetadataFiLM(nn.Module):
-    def __init__(self, in_channels, meta_dim=4, hidden_dim=32):
+    def __init__(self, in_channels, meta_dim=4, hidden_dim=256):
         super().__init__()
 
         self.mlp = nn.Sequential(
             nn.Linear(meta_dim, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, hidden_dim),
             nn.GELU(),
             nn.Linear(hidden_dim, 2 * in_channels),
         )
@@ -146,7 +148,7 @@ class SEBlock(Module):
     def __init__(self, in_channels):
         super().__init__()
 
-        reduction_ratio = max(4, in_channels // 8)
+        reduction_ratio = max(16, in_channels // 2)
 
         self.bottleneck = nn.Sequential(
             nn.AdaptiveAvgPool3d((1, 1, 1)),
@@ -224,7 +226,7 @@ class Encoder(Module):
 
 
 class MultiScaleSkipFusion(Module):
-    def __init__(self, downsampled):
+    def __init__(self, stage_channels):
         super().__init__()
 
         internal_channels = 64
@@ -232,28 +234,28 @@ class MultiScaleSkipFusion(Module):
         n_stages = 4
 
         self.proj_1 = nn.Conv3d(
-            in_channels=8,
+            in_channels=stage_channels[0],
             out_channels=internal_channels,
             kernel_size=1,
             stride=1,
             padding=0,
         )
         self.proj_2 = nn.Conv3d(
-            in_channels=16,
+            in_channels=stage_channels[1],
             out_channels=internal_channels,
             kernel_size=1,
             stride=1,
             padding=0,
         )
         self.proj_3 = nn.Conv3d(
-            in_channels=32,
+            in_channels=stage_channels[2],
             out_channels=internal_channels,
             kernel_size=1,
             stride=1,
             padding=0,
         )
         self.proj_4 = nn.Conv3d(
-            in_channels=64,
+            in_channels=stage_channels[3],
             out_channels=internal_channels,
             kernel_size=1,
             stride=1,
@@ -298,28 +300,28 @@ class MultiScaleSkipFusion(Module):
 
         self.out_proj_1 = nn.Conv3d(
             in_channels=internal_channels,
-            out_channels=64,
+            out_channels=stage_channels[3],
             kernel_size=1,
             stride=1,
             padding=0,
         )
         self.out_proj_2 = nn.Conv3d(
             in_channels=internal_channels,
-            out_channels=32,
+            out_channels=stage_channels[2],
             kernel_size=1,
             stride=1,
             padding=0,
         )
         self.out_proj_3 = nn.Conv3d(
             in_channels=internal_channels,
-            out_channels=16,
+            out_channels=stage_channels[1],
             kernel_size=1,
             stride=1,
             padding=0,
         )
         self.out_proj_4 = nn.Conv3d(
             in_channels=internal_channels,
-            out_channels=8,
+            out_channels=stage_channels[0],
             kernel_size=1,
             stride=1,
             padding=0,
