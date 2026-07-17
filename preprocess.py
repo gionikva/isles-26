@@ -47,7 +47,7 @@ def n4_bias_field(array):
     
     log_bias_field = corrector.GetLogBiasFieldAsImage(img)
     corrected_image = img / sitk.Exp(log_bias_field)
-    corrected_image = corrector.Execute(img, mask)
+    # corrected_image = corrector.Execute(img, mask)
     
     return np.transpose(sitk.GetArrayFromImage(corrected_image))
 

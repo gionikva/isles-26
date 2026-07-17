@@ -15,7 +15,7 @@ from monai.transforms import (
     DeleteItemsd,
     ResizeWithPadOrCropd,
     Lambdad,
-    RandCropByPosNegLabeld
+    RandCropByPosNegLabeld,
 )
 from glob import glob
 from os import scandir, listdir
@@ -131,20 +131,19 @@ class ISLESDataset(Dataset):
                 spatial_size=(256, 256, 256),
                 mode="constant",
             ),
-            Lambdad(keys=["mask"], func=lambda x: torch.cat([1.0 - x, x], dim=0)),
         ]
-        
+
         cropper = RandCropByPosNegLabeld(
             keys=["image", "mask"],
             label_key="mask",
-            spatial_size=(128, 128, 128), # 1/8th the VRAM, but full voxel resolution!
-            pos=1, # Ratio of patches containing a lesion
-            neg=1, # Ratio of patches containing background only
-            num_samples=1, # How many patches to extract per patient per epoch
+            spatial_size=(128, 128, 128),  # 1/8th the VRAM, but full voxel resolution!
+            pos=1,  # Ratio of patches containing a lesion
+            neg=1,  # Ratio of patches containing background only
+            num_samples=1,  # How many patches to extract per patient per epoch
             image_key="image",
             image_threshold=0,
         )
-        
+
         edges = [
             # 1. Duplicate the raw image into two new temporary keys
             CopyItemsd(
@@ -173,13 +172,15 @@ class ISLESDataset(Dataset):
             DeleteItemsd(keys=["image_edges"]),
         ]
 
-      
-        
         if add_edges:
             transform_list.extend(edges)
-            
+
         if random_crop:
             transform_list.append(cropper)
+
+        transform_list.append(
+            Lambdad(keys=["mask"], func=lambda x: torch.cat([1.0 - x, x], dim=0))
+        )
 
         self.transforms = Compose(transform_list)
 
@@ -248,12 +249,11 @@ class ISLESDataset(Dataset):
         # print(meta)
         # return {"image": image, "mask": mask, "metadata": meta}
 
-        
         out = self.transforms(out)
 
         if self.random_crop:
             return out[0]
-        else:   
+        else:
             return out
 
     def __len__(self):
