@@ -1,10 +1,7 @@
-from sympy import E1
 from torch.nn import Module
 import torch.nn as nn
 import torch.nn.functional as F
 import torch
-
-from models.lspm import LSPM
 
 class GhostConv3D(Module):
     def __init__(self, in_channels, out_channels=8, downscale=True, ratio=2):

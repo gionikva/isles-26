@@ -187,7 +187,7 @@ def test_model():
 
     dataset = ISLESDataset(random_crop=False, add_edges=add_edges)
 
-    item = dataset[0]
+    item = dataset[4]
 
     img = item["image"]
     mask = item["mask"]

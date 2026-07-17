@@ -1,6 +1,5 @@
 import pandas as pd
 import numpy as np
-from PIL.Image import Image
 from torch.utils.data import Dataset
 import torch
 import nibabel as nib

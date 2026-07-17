@@ -1,5 +1,3 @@
-import torch
-from sympy import E1
 from torch.nn import Module
 import torch.nn as nn
 import torch.nn.functional as F
