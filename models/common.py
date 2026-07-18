@@ -493,6 +493,9 @@ class Decoder(Module):
 class BoundaryRefinement(nn.Module):
     def __init__(self, in_channels=5, hidden_channels=16):
         super().__init__()
+        
+        
+        
         self.refine_block = nn.Sequential(
             # GhostConv3D(in_channels, hidden_channels, False, 2),
             nn.Conv3d(in_channels, hidden_channels, kernel_size=3, padding=1),
@@ -506,6 +509,9 @@ class BoundaryRefinement(nn.Module):
         )
 
     def forward(self, coarse_logits, edge_matrices):
+        
+        
+        
         coarse_probs = torch.sigmoid(coarse_logits)
         
         x = torch.cat([coarse_probs, edge_matrices], dim=1)

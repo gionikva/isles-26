@@ -56,14 +56,17 @@ class LightMedSeg(Module):
     def __init__(
         self,
         n_classes=2,
-        in_channels=5,
+        in_channels=1,
         num_anchors=8,
-        # Original stage channels = (8, 16, 32, 64)
-        stage_channels=(16, 32, 64, 256),
+        stage_channels=(8, 16, 32, 64),
         metadata_film=True,
+        boundary_refine=False,
         downsample=True,
     ):
         super().__init__()
+
+        if boundary_refine and not downsample:
+            raise ValueError("Boundary refinement requires downsampling.")
 
         self._hyperparams = {
             "n_classes": n_classes,
@@ -71,11 +74,16 @@ class LightMedSeg(Module):
             "num_anchors": num_anchors,
             "metadata_film": metadata_film,
             "downsample": downsample,
+            "boundary_refine": boundary_refine
         }
 
         self.in_channels = in_channels
         self.num_anchors = num_anchors
         self.metadata_film = metadata_film
+        
+        
+        # if boundary_refine:
+        #     self.boundary_refinement = BoundaryRefinement(in_channels=)
 
         self.embedding_stem = GhostConv3D(in_channels, 8, downscale=downsample)
 
@@ -130,6 +138,39 @@ class LightMedSeg(Module):
         #     n_classes, n_classes, kernel_size=2, stride=2
         # )
 
+    @staticmethod
+    def small(n_classes=2, in_channels=1, metadata_film=True, downsample=True):
+        return LightMedSeg(
+            n_classes=n_classes,
+            in_channels=in_channels,
+            num_anchors=8,
+            stage_channels=(8, 16, 32, 64),
+            metadata_film=metadata_film,
+            downample=downsample
+        )
+        
+    @staticmethod
+    def medium(n_classes=2, in_channels=1, metadata_film=True, downsample=True):
+        return LightMedSeg(
+            n_classes=n_classes,
+            in_channels=in_channels,
+            num_anchors=16,
+            stage_channels=(8, 16, 64, 256),
+            metadata_film=metadata_film,
+            downample=downsample
+        )
+        
+    @staticmethod
+    def large(n_classes=2, in_channels=1, metadata_film=True, downsample=True):
+        return LightMedSeg(
+            n_classes=n_classes,
+            in_channels=in_channels,
+            num_anchors=32,
+            stage_channels=(16, 32, 64, 256),
+            metadata_film=metadata_film,
+            downample=downsample
+        )
+
     def hyperparams(self):
         return self._hyperparams
 
@@ -165,6 +206,8 @@ class LightMedSeg(Module):
         out = F.interpolate(logits, (D, H, W), mode="nearest")
         # out = self.final_upsample(logits)
         return out
+
+    # def forward()
 
     # def debug_forward(self, X):
     #     embedding = self.embedding_stem(X)

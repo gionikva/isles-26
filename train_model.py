@@ -207,7 +207,7 @@ def main():
         default=40,
     )
     parser.add_argument("-b", "--batch-size", help="Batch size.", type=int, default=1)
-
+    
     parser.add_argument(
         "-r",
         "--range",
@@ -215,13 +215,30 @@ def main():
         type=str,
         default=None,
     )
+    
     parser.add_argument(
-        "-a",
-        "--num-anchors",
-        help="num_anchors hyperparameter value.",
-        type=int,
-        default=8,
+        "-r",
+        "--range",
+        help="Range of datapoints to train on in the format start_idx:end_idx.",
+        type=str,
+        default=None,
     )
+    
+    parser.add_argument(
+        "-s",
+        "--model-size",
+        help="Model size: 'small', 'medium' or 'large'.",
+        type=str,
+        choices=["small", "medium", "large"],
+        default="small"
+    )
+    # parser.add_argument(
+    #     "-a",
+    #     "--num-anchors",
+    #     help="num_anchors hyperparameter value.",
+    #     type=int,
+    #     default=8,
+    # )
     parser.add_argument(
         "-m",
         "--model",
@@ -268,13 +285,27 @@ def main():
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
     if args.model == "base":
-        model = LightMedSeg(
-            n_classes=2,
-            in_channels=1,
-            num_anchors=num_anchors,
-            metadata_film=metadata_film,
-            downsample=downsample,
-        )
+        if args.model_size == "small":
+            model = LightMedSeg.small(
+                n_classes=2,
+                in_channels=1,
+                metadata_film=metadata_film,
+                downsample=downsample,
+            )
+        elif args.model_size == "medium":
+            model = LightMedSeg.medium(
+                n_classes=2,
+                in_channels=1,
+                metadata_film=metadata_film,
+                downsample=downsample,
+            )
+        else:
+            model = LightMedSeg.large(
+                n_classes=2,
+                in_channels=1,
+                metadata_film=metadata_film,
+                downsample=downsample,
+            )
     else:
         model = LMSBR(
             n_classes=2,
