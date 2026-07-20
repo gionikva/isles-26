@@ -42,7 +42,7 @@ class LMSBR(Module):
             downsample=True,
         )
 
-        self.br = BoundaryRefinement()
+        self.br = BoundaryRefinement(hidden_channels=br_hidden_channels)
     
     @staticmethod
     def load(path, device=None):
@@ -73,6 +73,7 @@ class LMSBR(Module):
             n_classes=n_classes,
             num_anchors=8,
             stage_channels=(8, 16, 32, 64),
+            br_hidden_channels=4,
             metadata_film=metadata_film,
         )
         
@@ -82,6 +83,7 @@ class LMSBR(Module):
             n_classes=n_classes,
             num_anchors=16,
             stage_channels=(8, 16, 64, 128),
+            br_hidden_channels=8,
             metadata_film=metadata_film,
         )
         
@@ -91,6 +93,7 @@ class LMSBR(Module):
             n_classes=n_classes,
             num_anchors=32,
             stage_channels=(16, 32, 64, 256),
+            br_hidden_channels=16,
             metadata_film=metadata_film,
         )
     
@@ -99,10 +102,10 @@ class LMSBR(Module):
         return self._hyperparams
 
     def forward_train(self, X, metadata):
-        original = X[:, 0:1, :, :, :]
-        edges = X[:, 1:4, :, :, :]
-        coarse = self.base(original, metadata)
-        refined = self.br(coarse, edges)
+        # original = X[:, 0:1, :, :, :]
+        # edges = X[:, 1:4, :, :, :]
+        coarse = self.base(X, metadata)
+        refined = self.br(coarse, X)
         return refined, coarse
 
     def forward(self, X, metadata):

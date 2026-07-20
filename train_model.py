@@ -30,11 +30,11 @@ def get_logits_losses(model, images, metadata, targets, criterion, model_type):
         loss_refined, l_dice_r, l_ce_r, l_bdry_r = criterion(refined, targets)
 
         # 4. Combine losses (give the refined mask slightly more weight)
-        loss = (0.5 * loss_coarse) + loss_refined
+        loss = (0.33 * loss_coarse) + 0.67 * loss_refined
 
-        l_dice = (0.5 * l_dice_c) + l_dice_r
-        l_ce = (0.5 * l_ce_c) + l_ce_r
-        l_bdry = (0.5 * l_bdry_c) + l_bdry_r
+        l_dice = l_dice_r
+        l_ce = l_ce_r
+        l_bdry = l_bdry_r
 
         return refined, (loss, l_dice, l_ce, l_bdry)
 
@@ -257,7 +257,7 @@ def main():
     batch_size = args.batch_size
     # num_anchors = args.num_anchors
     crop = args.crop
-    add_edges = args.model == "refined"
+    # add_edges = args.model == "refined"
     metadata_film = not args.ignore_metadata
     downsample = not crop
 
@@ -265,7 +265,7 @@ def main():
     data_range = None if rng == None else [int(idx) for idx in rng.split(":")]
     print(data_range)
 
-    dataset = ISLESDataset(range=data_range, add_edges=add_edges, random_crop=crop)
+    dataset = ISLESDataset(range=data_range, add_edges=False, random_crop=crop)
 
     print(len(dataset))
 
