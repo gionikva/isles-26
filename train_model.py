@@ -217,14 +217,6 @@ def main():
     )
     
     parser.add_argument(
-        "-r",
-        "--range",
-        help="Range of datapoints to train on in the format start_idx:end_idx.",
-        type=str,
-        default=None,
-    )
-    
-    parser.add_argument(
         "-s",
         "--model-size",
         help="Model size: 'small', 'medium' or 'large'.",
@@ -261,7 +253,7 @@ def main():
     output_dir = args.output
     epochs = args.epochs
     batch_size = args.batch_size
-    num_anchors = args.num_anchors
+    # num_anchors = args.num_anchors
     crop = args.crop
     add_edges = args.model == "refined"
     metadata_film = not args.ignore_metadata

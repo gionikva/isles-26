@@ -45,13 +45,24 @@ class LightMedSegLoss(nn.Module):
         intersection = torch.sum(probs * targets, dim=(2, 3, 4))
         # Calculate the total area of predicted and target masks per class
         total = torch.sum(probs, dim=(2, 3, 4)) + torch.sum(targets, dim=(2, 3, 4))
-        # Calculate the DICE-score
+        # Calculate the DICE-score per batch and channel
         dice_score = (2. * intersection + eps) / (total + eps)
+        
+        # # Empty mask penalty calculation
+        # # ______________________________
+        # # Calculate sum per batch and channel of logits and mask
+        # logits_sum = logits.sum(dim=[2, 3, 4])
+        # targets_sum = targets.sum(dim=[2, 3, 4])
+        # # Empty mask penalty 
+        # volume_size = logits.shape[2] * logits.shape[3] * logits.shape[4]
+        # empty_mask_penalty = logits_sum / volume_size
+        # # Apply if for particular channel and batch the mask sum is equal to zero
+        # dice_score = torch.where(targets_sum == 0, empty_mask_penalty, dice_score)
+        
         # Subtract cross-batch mean from 1.0 for dice loss per class
         dice_loss_per_class = 1.0 - dice_score.mean(dim=0)
         # Apply per-class weights to calculate final dice loss
-        loss_dice = torch.sum(dice_loss_per_class * w_c) / self.num_classes
-        
+        loss_dice = torch.sum(dice_loss_per_class * w_c) / self.num_classes        
         
         # Boundary loss:
         # ______________________________

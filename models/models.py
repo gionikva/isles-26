@@ -146,7 +146,7 @@ class LightMedSeg(Module):
             num_anchors=8,
             stage_channels=(8, 16, 32, 64),
             metadata_film=metadata_film,
-            downample=downsample
+            downsample=downsample
         )
         
     @staticmethod
@@ -155,9 +155,9 @@ class LightMedSeg(Module):
             n_classes=n_classes,
             in_channels=in_channels,
             num_anchors=16,
-            stage_channels=(8, 16, 64, 256),
+            stage_channels=(8, 16, 64, 128),
             metadata_film=metadata_film,
-            downample=downsample
+            downsample=downsample
         )
         
     @staticmethod
@@ -168,7 +168,7 @@ class LightMedSeg(Module):
             num_anchors=32,
             stage_channels=(16, 32, 64, 256),
             metadata_film=metadata_film,
-            downample=downsample
+            downsample=downsample
         )
 
     def hyperparams(self):

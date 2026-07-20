@@ -70,7 +70,7 @@ class GlobalAnchorDetector(Module):
         n_groups = 4
 
         # mlp hidden layer size
-        hidden_width = 512
+        hidden_width = 256
 
         self.phi = nn.Sequential(
             nn.Conv3d(in_channels, out_channels, kernel, stride, padding),
@@ -121,7 +121,7 @@ class SpatialAnchorFiLM(Module):
 
 
 class MetadataFiLM(nn.Module):
-    def __init__(self, in_channels, meta_dim=4, hidden_dim=256):
+    def __init__(self, in_channels, meta_dim=4, hidden_dim=128):
         super().__init__()
 
         self.mlp = nn.Sequential(
