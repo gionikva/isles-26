@@ -181,7 +181,7 @@ def test_model():
     # map_location ensures it loads correctly even if moving from GPU to CPU
     checkpoint = torch.load(checkpoint_path, map_location=device)
 
-    model_type = checkpoint["model_type"]
+    model_type = checkpoint["model"]
 
     add_edges = model_type == "refined"
 
@@ -198,32 +198,10 @@ def test_model():
 
     # print (final_image.shape)
     
-    hparams = checkpoint['hyperparams']
-    
     if model_type == "base":
-    
-        model = LightMedSeg(
-            n_classes=2,
-            in_channels=hparams["in_channels"],
-            num_anchors=hparams["num_anchors"],
-            metadata_film=hparams["metadata_film"],
-            downsample=hparams['downsample']
-        )
+        model = LightMedSeg.load(checkpoint_path, device=device)
     else:
-        model = LMSBR(
-            n_classes=2,
-            num_anchors=hparams["num_anchors"],
-            metadata_film=hparams["metadata_film"],
-        )
-
-    # 4. Inject the saved weights into the model
-    model.load_state_dict(checkpoint["model_state_dict"])
-
-    # print(sum(p.numel() for p in model.parameters() if p.requires_grad))
-    # print(checkpoint['model_state_dict'])
-
-    # prediction = model(img.unsqueeze(0))
-    # print(prediction.shape)
+        model = LMSBR.load(checkpoint_path, device=device)
 
     visualize_prediction(model, img, mask, metadata, cropped=False, debug=False)
 

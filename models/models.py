@@ -1,3 +1,4 @@
+import torch
 from torch.nn import Module
 import torch.nn as nn
 import torch.nn.functional as F
@@ -18,6 +19,8 @@ class LMSBR(Module):
         self,
         n_classes=2,
         num_anchors=8,
+        stage_channels=(8, 16, 32, 64),
+        br_hidden_channels=16,
         metadata_film=True,
     ):
         super().__init__()
@@ -25,18 +28,72 @@ class LMSBR(Module):
         self._hyperparams = {
             "n_classes": n_classes,
             "num_anchors": num_anchors,
-            "metadata_film": metadata_film,
+            "stage_channels": stage_channels,
+            "br_hidden_channels": br_hidden_channels,
+            "metadata_film": metadata_film
         }
 
         self.base = LightMedSeg(
             n_classes=n_classes,
             in_channels=1,
             num_anchors=num_anchors,
+            stage_channels=stage_channels,
             metadata_film=metadata_film,
             downsample=True,
         )
 
         self.br = BoundaryRefinement()
+    
+    @staticmethod
+    def load(path, device=None):
+        checkpoint = torch.load(path, map_location=device)
+        hparams = checkpoint["hyperparams"]
+        model = LMSBR(
+            n_classes=hparams["n_classes"],
+            num_anchors=hparams["num_anchors"],
+            stage_channels=hparams["stage_channels"],
+            br_hidden_channels=hparams["br_hidden_channels"],
+            metadata_film=hparams["metadata_film"],
+        )
+        model.load_state_dict(checkpoint["model_state_dict"])
+        return model
+
+    def save(self, path, metadata=None):
+        save_dict = {
+            "model": "refined",
+            "metadata": metadata,
+            "model_state_dict": self.state_dict(),
+            "hyperparams": self.hyperparams(),
+        }
+        torch.save(save_dict, path)
+    
+    @staticmethod
+    def small(n_classes=2, metadata_film=True):
+        return LMSBR(
+            n_classes=n_classes,
+            num_anchors=8,
+            stage_channels=(8, 16, 32, 64),
+            metadata_film=metadata_film,
+        )
+        
+    @staticmethod
+    def medium(n_classes=2, metadata_film=True):
+        return LMSBR(
+            n_classes=n_classes,
+            num_anchors=16,
+            stage_channels=(8, 16, 64, 128),
+            metadata_film=metadata_film,
+        )
+        
+    @staticmethod
+    def large(n_classes=2, metadata_film=True):
+        return LMSBR(
+            n_classes=n_classes,
+            num_anchors=32,
+            stage_channels=(16, 32, 64, 256),
+            metadata_film=metadata_film,
+        )
+    
 
     def hyperparams(self):
         return self._hyperparams
@@ -137,6 +194,30 @@ class LightMedSeg(Module):
         # self.final_upsample = nn.ConvTranspose3d(
         #     n_classes, n_classes, kernel_size=2, stride=2
         # )
+        
+    @staticmethod
+    def load(path, device=None):
+        checkpoint = torch.load(path, map_location=device)
+        hparams = checkpoint["hyperparams"]
+        model = LightMedSeg(
+            n_classes=hparams["n_classes"],
+            in_channels=hparams["in_channels"],
+            num_anchors=hparams["num_anchors"],
+            stage_channels=hparams["stage_channels"],
+            metadata_film=hparams["metadata_film"],
+            downsample=hparams['downsample']
+        )
+        model.load_state_dict(checkpoint["model_state_dict"])
+        return model
+    
+    def save(self, path, metadata=None):
+        save_dict = {
+            "model": "base",
+            "metadata": metadata,
+            "model_state_dict": self.state_dict(),
+            "hyperparams": self.hyperparams(),
+        }
+        torch.save(save_dict, path)
 
     @staticmethod
     def small(n_classes=2, in_channels=1, metadata_film=True, downsample=True):

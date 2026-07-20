@@ -169,13 +169,11 @@ def train_model(
         #       CHECKPOINTING
         # ==========================
 
-        save_dict = {
+       
+        metadata = {
             "epoch": epoch,
-            "model_state_dict": model.state_dict(),
             "optimizer_state_dict": optimizer.state_dict(),
             "val_loss": avg_val_loss,
-            "model_type": model_type,
-            "hyperparams": model.hyperparams(),
         }
 
         if avg_val_loss < best_val_loss:
@@ -183,9 +181,13 @@ def train_model(
             print(
                 f"--> Validation loss improved to {best_val_loss:.4f}. Saving checkpoint!"
             )
-            torch.save(save_dict, save_path_best)
+            model.save(save_path_best, metadata)
+            
+            # torch.save(save_dict, save_path_best)
 
-        torch.save(save_dict, save_path_last)
+
+        model.save(save_path_last, metadata)
+        # torch.save(save_dict, save_path_last)
 
 
 def main():
@@ -299,11 +301,21 @@ def main():
                 downsample=downsample,
             )
     else:
-        model = LMSBR(
-            n_classes=2,
-            num_anchors=num_anchors,
-            metadata_film=metadata_film,
-        )
+        if args.model_size == "small":
+            model = LMSBR.small(
+                n_classes=2,
+                metadata_film=metadata_film,
+            )
+        elif args.model_size == "medium":
+            model = LMSBR.medium(
+                n_classes=2,
+                metadata_film=metadata_film,
+            )
+        else:
+            model = LMSBR.large(
+                n_classes=2,
+                metadata_film=metadata_film,
+            )
 
     print(sum(p.numel() for p in model.parameters() if p.requires_grad))
     
