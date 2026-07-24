@@ -50,6 +50,7 @@ def train_model(
     ce_only=False,
     device="cuda",
     last_epoch=-1,
+    optimizer_state_dict=None,
     save_path_best="lightmedseg_best.pth",
     save_path_last="lightmedseg_last.pth",
 ):
@@ -57,6 +58,10 @@ def train_model(
     model = model.to(device)
 
     optimizer = optim.AdamW(model.parameters(), lr=lr[0], weight_decay=0)
+    if optimizer_state_dict is not None:
+        optimizer.load_state_dict(optimizer_state_dict)
+    
+    
     criterion = LightMedSegLoss(num_classes=2, ce_only=ce_only)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(
         optimizer, eta_min=lr[1], T_max=num_epochs, last_epoch=last_epoch
@@ -241,7 +246,7 @@ def main():
         "-c", "--crop", help="Train using random crop.", action="store_true"
     )
     parser.add_argument(
-        "-r",
+        "-p",
         "--resume",
         help="Resume training from the last epoch.",
         action="store_true",
@@ -288,8 +293,10 @@ def main():
             model = LMSBR.load(last_weights_path)
 
         last_epoch = checkpoint["metadata"]["epoch"]
+        optimizer_state_dict = checkpoint["metadata"]["optimizer_state_dict"]
     else:
         last_epoch = -1
+        optimizer_state_dict = None
 
         if args.model == "base":
             if args.model_size == "small":
@@ -349,6 +356,7 @@ def main():
         device=device,
         lr=(5e-4, 1e-8),
         last_epoch=last_epoch,
+        optimizer_state_dict=optimizer_state_dict,
         # ce_only=True,
         save_path_best=os.path.join(output_dir, "best.pth"),
         save_path_last=os.path.join(output_dir, "last.pth"),

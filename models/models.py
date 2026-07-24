@@ -132,6 +132,7 @@ class LightMedSeg(Module):
             "n_classes": n_classes,
             "in_channels": in_channels,
             "num_anchors": num_anchors,
+            "stage_channels": stage_channels,
             "metadata_film": metadata_film,
             "downsample": downsample,
             "boundary_refine": boundary_refine
