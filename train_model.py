@@ -49,6 +49,7 @@ def train_model(
     lr=(2e-4, 1e-9),
     ce_only=False,
     device="cuda",
+    last_epoch=-1,
     save_path_best="lightmedseg_best.pth",
     save_path_last="lightmedseg_last.pth",
 ):
@@ -58,13 +59,12 @@ def train_model(
     optimizer = optim.AdamW(model.parameters(), lr=lr[0], weight_decay=0)
     criterion = LightMedSegLoss(num_classes=2, ce_only=ce_only)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, eta_min=lr[1], T_max=num_epochs
+        optimizer, eta_min=lr[1], T_max=num_epochs, last_epoch=last_epoch
     )
-    scaler = GradScaler()
-
+    
     best_val_loss = float("inf")
 
-    for epoch in range(num_epochs):
+    for epoch in range(last_epoch+1, num_epochs):
         print(f"Epoch {epoch+1}/{num_epochs}\n")
 
         # ==============
@@ -86,17 +86,13 @@ def train_model(
 
             optimizer.zero_grad(set_to_none=True)
 
-            # with autocast(device_type=device, dtype=torch.float32):
+           
             logits, (loss, l_dice, l_ce, l_bdry) = get_logits_losses(
                 model, images, metadata, targets, criterion, model_type
             )
 
             loss.backward()
             optimizer.step()
-
-            # scaler.scale(loss).backward()
-            # scaler.step(optimizer)
-            # scaler.update()
 
             train_loss += loss.item()
             train_dice += l_dice.item()
@@ -169,7 +165,6 @@ def train_model(
         #       CHECKPOINTING
         # ==========================
 
-       
         metadata = {
             "epoch": epoch,
             "optimizer_state_dict": optimizer.state_dict(),
@@ -182,12 +177,8 @@ def train_model(
                 f"--> Validation loss improved to {best_val_loss:.4f}. Saving checkpoint!"
             )
             model.save(save_path_best, metadata)
-            
-            # torch.save(save_dict, save_path_best)
-
 
         model.save(save_path_last, metadata)
-        # torch.save(save_dict, save_path_last)
 
 
 def main():
@@ -209,7 +200,7 @@ def main():
         default=40,
     )
     parser.add_argument("-b", "--batch-size", help="Batch size.", type=int, default=1)
-    
+
     parser.add_argument(
         "-r",
         "--range",
@@ -217,14 +208,14 @@ def main():
         type=str,
         default=None,
     )
-    
+
     parser.add_argument(
         "-s",
         "--model-size",
         help="Model size: 'small', 'medium' or 'large'.",
         type=str,
         choices=["small", "medium", "large"],
-        default="small"
+        default="small",
     )
     # parser.add_argument(
     #     "-a",
@@ -249,6 +240,12 @@ def main():
     parser.add_argument(
         "-c", "--crop", help="Train using random crop.", action="store_true"
     )
+    parser.add_argument(
+        "-r",
+        "--resume",
+        help="Resume training from the last epoch.",
+        action="store_true",
+    )
 
     args = parser.parse_args()
 
@@ -260,6 +257,7 @@ def main():
     # add_edges = args.model == "refined"
     metadata_film = not args.ignore_metadata
     downsample = not crop
+    resume = args.resume
 
     rng = args.range
     data_range = None if rng == None else [int(idx) for idx in rng.split(":")]
@@ -278,53 +276,67 @@ def main():
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
-    if args.model == "base":
-        if args.model_size == "small":
-            model = LightMedSeg.small(
-                n_classes=2,
-                in_channels=1,
-                metadata_film=metadata_film,
-                downsample=downsample,
-            )
-        elif args.model_size == "medium":
-            model = LightMedSeg.medium(
-                n_classes=2,
-                in_channels=1,
-                metadata_film=metadata_film,
-                downsample=downsample,
-            )
+
+    if resume:
+        last_weights_path = os.path.join(output_dir, "last.pth")
+
+        checkpoint = torch.load(last_weights_path)
+        model_type = checkpoint["model"]
+        if model_type == "base":
+            model = LightMedSeg.load(last_weights_path)
         else:
-            model = LightMedSeg.large(
-                n_classes=2,
-                in_channels=1,
-                metadata_film=metadata_film,
-                downsample=downsample,
-            )
+            model = LMSBR.load(last_weights_path)
+
+        last_epoch = checkpoint["metadata"]["epoch"]
     else:
-        if args.model_size == "small":
-            model = LMSBR.small(
-                n_classes=2,
-                metadata_film=metadata_film,
-            )
-        elif args.model_size == "medium":
-            model = LMSBR.medium(
-                n_classes=2,
-                metadata_film=metadata_film,
-            )
+        last_epoch = -1
+
+        if args.model == "base":
+            if args.model_size == "small":
+                model = LightMedSeg.small(
+                    n_classes=2,
+                    in_channels=1,
+                    metadata_film=metadata_film,
+                    downsample=downsample,
+                )
+            elif args.model_size == "medium":
+                model = LightMedSeg.medium(
+                    n_classes=2,
+                    in_channels=1,
+                    metadata_film=metadata_film,
+                    downsample=downsample,
+                )
+            else:
+                model = LightMedSeg.large(
+                    n_classes=2,
+                    in_channels=1,
+                    metadata_film=metadata_film,
+                    downsample=downsample,
+                )
         else:
-            model = LMSBR.large(
-                n_classes=2,
-                metadata_film=metadata_film,
-            )
+            if args.model_size == "small":
+                model = LMSBR.small(
+                    n_classes=2,
+                    metadata_film=metadata_film,
+                )
+            elif args.model_size == "medium":
+                model = LMSBR.medium(
+                    n_classes=2,
+                    metadata_film=metadata_film,
+                )
+            else:
+                model = LMSBR.large(
+                    n_classes=2,
+                    metadata_film=metadata_film,
+                )
 
     print(sum(p.numel() for p in model.parameters() if p.requires_grad))
-    
-    device = "cuda" if torch.cuda.is_available() else "cpu"
 
+    device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # out_dir = Path(output_dir)
 
-    # for part in 
+    # for part in
 
     os.makedirs(output_dir, exist_ok=True)
 
@@ -336,6 +348,7 @@ def main():
         num_epochs=epochs,
         device=device,
         lr=(5e-4, 1e-8),
+        last_epoch=last_epoch,
         # ce_only=True,
         save_path_best=os.path.join(output_dir, "best.pth"),
         save_path_last=os.path.join(output_dir, "last.pth"),
