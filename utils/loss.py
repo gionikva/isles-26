@@ -44,25 +44,30 @@ class LightMedSegLoss(nn.Module):
         # Calculate the intersection between predicted masks and target masks per class
         intersection = torch.sum(probs * targets, dim=(2, 3, 4))
         # Calculate the total area of predicted and target masks per class
-        total = torch.sum(probs, dim=(2, 3, 4)) + torch.sum(targets, dim=(2, 3, 4))
+        probs_sum = probs.sum(dim=[2, 3, 4])
+        targets_sum = targets.sum(dim=[2, 3, 4])
+        total = probs_sum + targets_sum
         # Calculate the DICE-score per batch and channel
         dice_score = (2. * intersection + eps) / (total + eps)
+        dice_loss_standard = 1.0 - dice_score
         
-        # # Empty mask penalty calculation
-        # # ______________________________
-        # # Calculate sum per batch and channel of logits and mask
-        # logits_sum = logits.sum(dim=[2, 3, 4])
-        # targets_sum = targets.sum(dim=[2, 3, 4])
-        # # Empty mask penalty 
-        # volume_size = logits.shape[2] * logits.shape[3] * logits.shape[4]
-        # empty_mask_penalty = logits_sum / volume_size
-        # # Apply if for particular channel and batch the mask sum is equal to zero
-        # dice_score = torch.where(targets_sum == 0, empty_mask_penalty, dice_score)
+        # Empty mask penalty calculation
+        # ______________________________
+        # Calculate sum per batch and channel of probabilities and mask
         
-        # Subtract cross-batch mean from 1.0 for dice loss per class
-        dice_loss_per_class = 1.0 - dice_score.mean(dim=0)
-        # Apply per-class weights to calculate final dice loss
+        # Empty mask penalty 
+        volume_size = probs.shape[2] * probs.shape[3] * probs.shape[4]
+        empty_mask_penalty = probs_sum / volume_size
+        # Apply if for particular channel and batch the mask sum is equal to zero
+        dice_loss = torch.where(targets_sum == 0, empty_mask_penalty, dice_loss_standard)
+        
+        
+        dice_loss_per_class = dice_loss.mean(dim=0)
+                        # Apply per-class weights to calculate final dice loss
         loss_dice = torch.sum(dice_loss_per_class * w_c) / self.num_classes        
+                
+        # Subtract cross-batch mean from 1.0 for dice loss per class
+      
         
         # Boundary loss:
         # ______________________________
