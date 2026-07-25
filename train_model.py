@@ -29,7 +29,6 @@ def get_logits_losses(model, images, metadata, targets, criterion, model_type):
         loss_coarse, l_dice_c, l_ce_c, l_bdry_c = criterion(coarse, targets)
         loss_refined, l_dice_r, l_ce_r, l_bdry_r = criterion(refined, targets)
 
-        # 4. Combine losses (give the refined mask slightly more weight)
         loss = (0.33 * loss_coarse) + 0.67 * loss_refined
 
         l_dice = l_dice_r
@@ -60,16 +59,15 @@ def train_model(
     optimizer = optim.AdamW(model.parameters(), lr=lr[0], weight_decay=0)
     if optimizer_state_dict is not None:
         optimizer.load_state_dict(optimizer_state_dict)
-    
-    
+
     criterion = LightMedSegLoss(num_classes=2, ce_only=ce_only)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(
         optimizer, eta_min=lr[1], T_max=num_epochs, last_epoch=last_epoch
     )
-    
+
     best_val_loss = float("inf")
 
-    for epoch in range(last_epoch+1, num_epochs):
+    for epoch in range(last_epoch + 1, num_epochs):
         print(f"Epoch {epoch+1}/{num_epochs}\n")
 
         # ==============
@@ -91,7 +89,6 @@ def train_model(
 
             optimizer.zero_grad(set_to_none=True)
 
-           
             logits, (loss, l_dice, l_ce, l_bdry) = get_logits_losses(
                 model, images, metadata, targets, criterion, model_type
             )
@@ -207,6 +204,12 @@ def main():
     parser.add_argument("-b", "--batch-size", help="Batch size.", type=int, default=1)
 
     parser.add_argument(
+        "--lr-range",
+        help="Learning rate range in the format max:min. Must follow Python's float format.",
+        type=str,
+    )
+
+    parser.add_argument(
         "-r",
         "--range",
         help="Range of datapoints to train on in the format start_idx:end_idx.",
@@ -255,6 +258,13 @@ def main():
     args = parser.parse_args()
 
     output_dir = args.output
+    
+    if args.lr_range is not None:
+        split = args.lr_range.split(":")
+        lr_range = (float(split[0]), float(split[1]))
+    else:
+        lr_range = (5e-4, 1e-8)
+    
     epochs = args.epochs
     batch_size = args.batch_size
     # num_anchors = args.num_anchors
@@ -354,7 +364,7 @@ def main():
         model_type=args.model,
         num_epochs=epochs,
         device=device,
-        lr=(5e-4, 1e-8),
+        lr=lr_range,
         last_epoch=last_epoch,
         optimizer_state_dict=optimizer_state_dict,
         # ce_only=True,
