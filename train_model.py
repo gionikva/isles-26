@@ -249,6 +249,9 @@ def main():
         "-c", "--crop", help="Train using random crop.", action="store_true"
     )
     parser.add_argument(
+        "-a", "--domain-agument", help="Enable domain augmentation.", action="store_true"
+    )
+    parser.add_argument(
         "-p",
         "--resume",
         help="Resume training from the last epoch.",
@@ -267,9 +270,8 @@ def main():
     
     epochs = args.epochs
     batch_size = args.batch_size
-    # num_anchors = args.num_anchors
     crop = args.crop
-    # add_edges = args.model == "refined"
+    domain_augment = args.domain_augment
     metadata_film = not args.ignore_metadata
     downsample = not crop
     resume = args.resume
@@ -278,7 +280,7 @@ def main():
     data_range = None if rng == None else [int(idx) for idx in rng.split(":")]
     print(data_range)
 
-    dataset = ISLESDataset(range=data_range, add_edges=False, random_crop=crop)
+    dataset = ISLESDataset(range=data_range, random_crop=crop, domain_augment=domain_augment)
 
     print(len(dataset))
 
