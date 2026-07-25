@@ -193,6 +193,7 @@ class ISLESDataset(Dataset):
 
         if random_crop:
             transform_list.append(cropper)
+            
         if domain_augment:
             transform_list.append(
                 GatedAugmentationBlockd(
