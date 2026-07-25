@@ -1,7 +1,10 @@
+from glob import glob
+from os import scandir, listdir
+import os
+import torch
 import pandas as pd
 import numpy as np
 from torch.utils.data import Dataset
-import torch
 import nibabel as nib
 from monai.transforms import (
     LoadImaged,
@@ -16,10 +19,13 @@ from monai.transforms import (
     ResizeWithPadOrCropd,
     Lambdad,
     RandCropByPosNegLabeld,
+    MapTransform,
+    RandFlipd,
+    RandRotated,
+    RandGaussianNoised,
+    RandAdjustContrastd,
 )
-from glob import glob
-from os import scandir, listdir
-import os
+
 
 from utils.shared import get_dataset_filepaths
 
@@ -96,15 +102,61 @@ class OctantCropDataset(Dataset):
         return 8 * len(self.features)
 
 
+class GatedAugmentationBlockd(MapTransform):
+    def __init__(self, image_keys=["image"], label_keys=["label"], block_prob=0.5):
+        # MapTransform needs to know all the keys it will interact with
+        all_keys = image_keys + label_keys
+        super().__init__(all_keys)
+
+        self.block_prob = block_prob
+
+        # Define the augmentations.
+        # Note the internal `prob` values: set them to 1.0 if you want the
+        # augmented 50% of data to ALWAYS get all 4 augmentations. If you want
+        # the augmented data to get a random mix, lower these internal probabilities.
+        self.aug_pipeline = Compose(
+            [
+                RandFlipd(keys=all_keys, spatial_axis=0, prob=0.5),
+                RandFlipd(keys=all_keys, spatial_axis=1, prob=0.5),
+                RandFlipd(keys=all_keys, spatial_axis=2, prob=0.5),
+                RandRotated(
+                    keys=all_keys,
+                    range_x=0.4,  # rotation range in radians
+                    range_y=0.4,
+                    range_z=0.4,
+                    mode=[
+                        "trilinear",
+                        "nearest",
+                    ],
+                    prob=0.5,
+                ),
+                # 2. Intensity: Apply ONLY to image
+                RandGaussianNoised(keys=image_keys, mean=0.0, std=0.1, prob=0.5),
+                RandAdjustContrastd(
+                    keys=image_keys,
+                    gamma=(0.5, 2.0),  # Contrast adjustment range
+                    prob=0.5,
+                ),
+            ]
+        )
+
+    def __call__(self, data):
+        # 50% chance to skip augmentations entirely and return raw data
+        if np.random.rand() > self.block_prob:
+            return data
+
+        # 50% chance to pass the data through the augmentation pipeline
+        return self.aug_pipeline(data)
+
+
 class ISLESDataset(Dataset):
     # mask_add_bgc: whether to add a background channel to the target mask
     def __init__(
         self,
-        split="train",
         range=None,
         mask_add_bgc=True,
-        add_edges=False,
         random_crop=False,
+        domain_augment=False,
         random_seed=42,
     ):
         super().__init__()
@@ -115,12 +167,6 @@ class ISLESDataset(Dataset):
         self.metadata, self.features, self.labels = get_dataset_filepaths(range)
 
         print(len(self.features))
-
-        # self.standardize_grid = ResizeWithPadOrCrop(
-        #     spatial_size=(256, 256, 256), mode="constant"
-        # )
-
-        feature_keys = ["image", "image_edges"]
 
         transform_list = [
             LoadImaged(keys=["image", "mask"]),
@@ -144,39 +190,15 @@ class ISLESDataset(Dataset):
             image_threshold=0,
         )
 
-        edges = [
-            # 1. Duplicate the raw image into two new temporary keys
-            CopyItemsd(
-                keys=["image"],
-                times=1,
-                names=["image_edges"],
-            ),
-            # 2. Channel A: Generate the Edge Map
-            SobelGradientsd(keys=["image_edges"]),
-            # 3. Channel B: Generate the High-Contrast Map
-            # Clip the bottom 5% and top 5% of intensities, stretch the rest to [0, 1]
-            # Normalize the base image and edge map to [0, 1] as well for consistency
-            ScaleIntensityRangePercentilesd(
-                keys=["image", "image_edges"],
-                lower=0.0,
-                upper=100.0,
-                b_min=0.0,
-                b_max=1.0,
-                clip=True,
-                relative=False,
-            ),
-            # 4. Concatenate the original and new channels along the channel dimension (dim=0)
-            # This turns a (1, D, H, W) tensor into a (3, D, H, W) tensor
-            ConcatItemsd(keys=feature_keys, name="image", dim=0),
-            # 5. Clean up the dictionary so it doesn't waste RAM
-            DeleteItemsd(keys=["image_edges"]),
-        ]
-
-        if add_edges:
-            transform_list.extend(edges)
 
         if random_crop:
             transform_list.append(cropper)
+        if domain_augment:
+            transform_list.append(
+                GatedAugmentationBlockd(
+                    image_keys=["image"], label_keys=["mask"], block_prob=0.5
+                )
+            )
 
         transform_list.append(
             Lambdad(keys=["mask"], func=lambda x: torch.cat([1.0 - x, x], dim=0))
