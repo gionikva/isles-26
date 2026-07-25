@@ -249,7 +249,7 @@ def main():
         "-c", "--crop", help="Train using random crop.", action="store_true"
     )
     parser.add_argument(
-        "-a", "--domain-agument", help="Enable domain augmentation.", action="store_true"
+        "-a", "--domain-augment", help="Enable domain augmentation.", action="store_true"
     )
     parser.add_argument(
         "-p",
