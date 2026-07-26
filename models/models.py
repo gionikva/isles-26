@@ -30,7 +30,7 @@ class LMSBR(Module):
             "num_anchors": num_anchors,
             "stage_channels": stage_channels,
             "br_hidden_channels": br_hidden_channels,
-            "metadata_film": metadata_film
+            "metadata_film": metadata_film,
         }
 
         self.base = LightMedSeg(
@@ -43,7 +43,7 @@ class LMSBR(Module):
         )
 
         self.br = BoundaryRefinement(hidden_channels=br_hidden_channels)
-    
+
     @staticmethod
     def load(path, device=None):
         checkpoint = torch.load(path, map_location=device)
@@ -66,7 +66,7 @@ class LMSBR(Module):
             "hyperparams": self.hyperparams(),
         }
         torch.save(save_dict, path)
-    
+
     @staticmethod
     def small(n_classes=2, metadata_film=True):
         return LMSBR(
@@ -76,7 +76,7 @@ class LMSBR(Module):
             br_hidden_channels=4,
             metadata_film=metadata_film,
         )
-        
+
     @staticmethod
     def medium(n_classes=2, metadata_film=True):
         return LMSBR(
@@ -86,7 +86,7 @@ class LMSBR(Module):
             br_hidden_channels=8,
             metadata_film=metadata_film,
         )
-        
+
     @staticmethod
     def large(n_classes=2, metadata_film=True):
         return LMSBR(
@@ -96,21 +96,22 @@ class LMSBR(Module):
             br_hidden_channels=16,
             metadata_film=metadata_film,
         )
-    
 
     def hyperparams(self):
         return self._hyperparams
+    
+    def forward_deep(self, X, metadata):
+        d4, d3, d2, d1 = self.base.forward_deep(X, metadata)
+        refined = self.br(d4, X)
+        return refined, d4, d3, d2, d1
 
     def forward_train(self, X, metadata):
-        # original = X[:, 0:1, :, :, :]
-        # edges = X[:, 1:4, :, :, :]
         coarse = self.base(X, metadata)
         refined = self.br(coarse, X)
         return refined, coarse
 
     def forward(self, X, metadata):
         return self.forward_train(X, metadata)[0]
-
 
 class LightMedSeg(Module):
     def __init__(
@@ -135,14 +136,13 @@ class LightMedSeg(Module):
             "stage_channels": stage_channels,
             "metadata_film": metadata_film,
             "downsample": downsample,
-            "boundary_refine": boundary_refine
+            "boundary_refine": boundary_refine,
         }
 
         self.in_channels = in_channels
         self.num_anchors = num_anchors
         self.metadata_film = metadata_film
-        
-        
+
         # if boundary_refine:
         #     self.boundary_refinement = BoundaryRefinement(in_channels=)
 
@@ -192,13 +192,25 @@ class LightMedSeg(Module):
             stage_channels[1], stage_channels[0], num_anchors=num_anchors, upsample=True
         )
         self.D4 = Decoder(stage_channels[0], 8, num_anchors=num_anchors, upsample=True)
+        
+        # Auxillary segmentation heads for deep supervision
+        self.aux_head_1 = nn.Conv3d(
+            stage_channels[2], n_classes, kernel_size=1, stride=1, padding=0
+        )
+        self.aux_head_2 = nn.Conv3d(
+            stage_channels[1], n_classes, kernel_size=1, stride=1, padding=0
+        )
+        self.aux_head_3 = nn.Conv3d(
+            stage_channels[0], n_classes, kernel_size=1, stride=1, padding=0
+        )
+        
         self.segmentation_head = nn.Conv3d(
             8, n_classes, kernel_size=1, stride=1, padding=0
         )
         # self.final_upsample = nn.ConvTranspose3d(
         #     n_classes, n_classes, kernel_size=2, stride=2
         # )
-        
+
     @staticmethod
     def load(path, device=None):
         checkpoint = torch.load(path, map_location=device)
@@ -209,11 +221,11 @@ class LightMedSeg(Module):
             num_anchors=hparams["num_anchors"],
             stage_channels=hparams["stage_channels"],
             metadata_film=hparams["metadata_film"],
-            downsample=hparams['downsample']
+            downsample=hparams["downsample"],
         )
         model.load_state_dict(checkpoint["model_state_dict"])
         return model
-    
+
     def save(self, path, metadata=None):
         save_dict = {
             "model": "base",
@@ -231,9 +243,9 @@ class LightMedSeg(Module):
             num_anchors=8,
             stage_channels=(8, 16, 32, 64),
             metadata_film=metadata_film,
-            downsample=downsample
+            downsample=downsample,
         )
-        
+
     @staticmethod
     def medium(n_classes=2, in_channels=1, metadata_film=True, downsample=True):
         return LightMedSeg(
@@ -242,9 +254,9 @@ class LightMedSeg(Module):
             num_anchors=16,
             stage_channels=(8, 16, 64, 128),
             metadata_film=metadata_film,
-            downsample=downsample
+            downsample=downsample,
         )
-        
+
     @staticmethod
     def large(n_classes=2, in_channels=1, metadata_film=True, downsample=True):
         return LightMedSeg(
@@ -253,13 +265,13 @@ class LightMedSeg(Module):
             num_anchors=32,
             stage_channels=(16, 32, 64, 256),
             metadata_film=metadata_film,
-            downsample=downsample
+            downsample=downsample,
         )
 
     def hyperparams(self):
         return self._hyperparams
 
-    def forward(self, X, metadata):
+    def forward_deep(self, X, metadata):
         _, _, D, H, W = X.shape
         embedding = self.embedding_stem(X)
         anchors = self.anchor_detector(embedding)
@@ -287,10 +299,25 @@ class LightMedSeg(Module):
         # del d2_out, skip_3
         d4_out = self.D4(d3_out, skip_4, anchors)
         # del d3_out, skip_4
+        
+        # Deep supervision logits 
+        logits_ds_1 = self.aux_head_1(d1_out)
+        logits_ds_2 = self.aux_head_2(d2_out)
+        logits_ds_3 = self.aux_head_3(d3_out)
+        # Output logits
         logits = self.segmentation_head(d4_out)
-        out = F.interpolate(logits, (D, H, W), mode="nearest")
+        
+        # Interpolation to output resolution
+        ds_out_1 = F.interpolate(logits_ds_1, (D, H, W), mode="trilinear", align_corners=False)
+        ds_out_2 = F.interpolate(logits_ds_2, (D, H, W), mode="trilinear", align_corners=False)
+        ds_out_3 = F.interpolate(logits_ds_3, (D, H, W), mode="trilinear", align_corners=False)
+        out = F.interpolate(logits, (D, H, W), mode="trilinear", align_corners=False)
+        
+        return out, ds_out_3, ds_out_2, ds_out_1
+
+    def forward(self, X, metadata):
         # out = self.final_upsample(logits)
-        return out
+        return self.deep_forward(X, metadata)[0]
 
     # def forward()
 

@@ -15,27 +15,57 @@ from tqdm import tqdm
 from tqdm import tqdm
 
 
-def get_logits_losses(model, images, metadata, targets, criterion, model_type):
+def calculate_deep_supervision_loss(preds_list, targets, criterion, weights):
+    """
+    preds_list: List of tensors [out4, out3, out2, out1] all interpolated to target size
+    targets: The single full-resolution ground truth mask (128x128x128)
+    criterion: Your custom loss function (e.g., LightMedSegLoss)
+    """
+    deep_loss = 0.0
+
+    # We only want to track the metrics of the main, highest-res output for logging
+    main_total, main_dice, main_ce, main_bdry = 0.0, 0.0, 0.0, 0.0
+
+    for i, pred in enumerate(preds_list):
+        # Calculate loss for this specific decoder block's output
+        # criterion returns: (total_combined_loss, dice_loss, ce_loss, boundary_loss)
+        loss, l_dice, l_ce, l_bdry = criterion(pred, targets)
+
+        # Multiply by the decaying weight and add to the total gradient
+        deep_loss += weights[i] * loss
+
+        # Save the metrics from D4 (index 0) so your progress bar looks accurate
+        if i == 0:
+            main_total = loss
+            main_dice = l_dice
+            main_ce = l_ce
+            main_bdry = l_bdry
+
+    # Normalize the loss so the magnitude doesn't blow up your learning rate
+    weight_sum = sum(weights)
+    deep_loss = deep_loss / weight_sum
+
+    return deep_loss, (main_total, main_dice, main_ce, main_bdry)
+
+
+def get_losses(
+    model, images, metadata, targets, criterion, model_type, deep_supervision
+):
     if model_type == "base":
-        logits = model(images, metadata)
-
-        loss, l_dice, l_ce, l_bdry = criterion(logits, targets)
-
-        return logits, (loss, l_dice, l_ce, l_bdry)
-
+        if deep_supervision:
+            preds = model.forward_deep(images, metadata)
+        else:
+            logits = model.forward(images, metadata)
+            preds = [logits]
     else:
-        refined, coarse = model.forward_train(images, metadata)
+        if deep_supervision:
+            preds = model.forward_deep(images, metadata)
+        else:
+            preds = model.forward_train(images, metadata)
 
-        loss_coarse, l_dice_c, l_ce_c, l_bdry_c = criterion(coarse, targets)
-        loss_refined, l_dice_r, l_ce_r, l_bdry_r = criterion(refined, targets)
-
-        loss = (0.33 * loss_coarse) + 0.67 * loss_refined
-
-        l_dice = l_dice_r
-        l_ce = l_ce_r
-        l_bdry = l_bdry_r
-
-        return refined, (loss, l_dice, l_ce, l_bdry)
+    return calculate_deep_supervision_loss(
+        preds, targets, criterion, [2.0, 1.0, 0.5, 0.25, 0.125]
+    )
 
 
 def train_model(
@@ -46,6 +76,7 @@ def train_model(
     num_epochs=100,
     # learning rate range initial (max) to final (min)
     lr=(2e-4, 1e-9),
+    deep_supervision=False,
     ce_only=False,
     device="cuda",
     last_epoch=-1,
@@ -89,11 +120,17 @@ def train_model(
 
             optimizer.zero_grad(set_to_none=True)
 
-            logits, (loss, l_dice, l_ce, l_bdry) = get_logits_losses(
-                model, images, metadata, targets, criterion, model_type
+            deep_loss, (loss, l_dice, l_ce, l_bdry) = get_losses(
+                model,
+                images,
+                metadata,
+                targets,
+                criterion,
+                model_type,
+                deep_supervision,
             )
 
-            loss.backward()
+            deep_loss.backward()
             optimizer.step()
 
             train_loss += loss.item()
@@ -134,7 +171,7 @@ def train_model(
                 targets = batch["mask"].to(device)
 
                 with autocast(device_type=device, dtype=torch.float32):
-                    _, (loss, l_dice, l_ce, l_bdry) = get_logits_losses(
+                    _, (loss, l_dice, l_ce, l_bdry) = get_losses(
                         model, images, metadata, targets, criterion, model_type
                     )
 
@@ -240,6 +277,9 @@ def main():
         choices=["base", "refined"],
     )
     parser.add_argument(
+        "--deep-supervision", help="Use deep supervision.", action="store_true"
+    )
+    parser.add_argument(
         "-d",
         "--ignore-metadata",
         help="Disables the metadata FiLM functionality.",
@@ -249,7 +289,10 @@ def main():
         "-c", "--crop", help="Train using random crop.", action="store_true"
     )
     parser.add_argument(
-        "-a", "--domain-augment", help="Enable domain augmentation.", action="store_true"
+        "-a",
+        "--domain-augment",
+        help="Enable domain augmentation.",
+        action="store_true",
     )
     parser.add_argument(
         "-p",
@@ -261,17 +304,18 @@ def main():
     args = parser.parse_args()
 
     output_dir = args.output
-    
+
     if args.lr_range is not None:
         split = args.lr_range.split(":")
         lr_range = (float(split[0]), float(split[1]))
     else:
         lr_range = (5e-4, 1e-8)
-    
+
     epochs = args.epochs
     batch_size = args.batch_size
     crop = args.crop
     domain_augment = args.domain_augment
+    deep_supervision = args.deep_supervision
     metadata_film = not args.ignore_metadata
     downsample = not crop
     resume = args.resume
@@ -280,7 +324,9 @@ def main():
     data_range = None if rng == None else [int(idx) for idx in rng.split(":")]
     print(data_range)
 
-    dataset = ISLESDataset(range=data_range, random_crop=crop, domain_augment=domain_augment)
+    dataset = ISLESDataset(
+        range=data_range, random_crop=crop, domain_augment=domain_augment
+    )
 
     print(len(dataset))
 
@@ -367,6 +413,7 @@ def main():
         num_epochs=epochs,
         device=device,
         lr=lr_range,
+        deep_supervision=deep_supervision,
         last_epoch=last_epoch,
         optimizer_state_dict=optimizer_state_dict,
         # ce_only=True,
