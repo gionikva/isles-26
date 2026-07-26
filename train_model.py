@@ -68,6 +68,8 @@ def get_losses(
     )
 
 
+
+
 def train_model(
     model: LightMedSeg,
     train_loader: DataLoader,
@@ -219,10 +221,7 @@ def train_model(
 
         model.save(save_path_last, metadata)
 
-
-def main():
-    torch.manual_seed(42)
-
+def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "-o",
@@ -244,6 +243,7 @@ def main():
         "--lr-range",
         help="Learning rate range in the format max:min. Must follow Python's float format.",
         type=str,
+        default="5e-4:1e-8"
     )
 
     parser.add_argument(
@@ -262,13 +262,6 @@ def main():
         choices=["small", "medium", "large"],
         default="small",
     )
-    # parser.add_argument(
-    #     "-a",
-    #     "--num-anchors",
-    #     help="num_anchors hyperparameter value.",
-    #     type=int,
-    #     default=8,
-    # )
     parser.add_argument(
         "-m",
         "--model",
@@ -302,26 +295,44 @@ def main():
     )
 
     args = parser.parse_args()
+    
+    parsed = {}
+    
+    parsed["output_dir"] = args.output
+    
+    split = args.lr_range.split(":")
+    parsed["lr_range"] = (float(split[0]), float(split[1]))
+    
 
-    output_dir = args.output
-
-    if args.lr_range is not None:
-        split = args.lr_range.split(":")
-        lr_range = (float(split[0]), float(split[1]))
-    else:
-        lr_range = (5e-4, 1e-8)
-
-    epochs = args.epochs
-    batch_size = args.batch_size
-    crop = args.crop
-    domain_augment = args.domain_augment
-    deep_supervision = args.deep_supervision
-    metadata_film = not args.ignore_metadata
-    downsample = not crop
-    resume = args.resume
+    parsed["epochs"] = args.epochs
+    parsed["batch_size"] = args.batch_size
+    parsed["crop"] = args.crop
+    parsed["domain_augment"] = args.domain_augment
+    parsed["deep_supervision"] = args.deep_supervision
+    parsed["metadata_film"] = not args.ignore_metadata
+    parsed["downsample"] = not args.crop
+    parsed["resume"] = args.resume
 
     rng = args.range
-    data_range = None if rng == None else [int(idx) for idx in rng.split(":")]
+    parsed["data_range"] = None if rng == None else [int(idx) for idx in rng.split(":")]
+    return parsed
+
+def main():
+    torch.manual_seed(42)
+
+    args = parse_arguments()
+
+    output_dir = args["output"]
+    lr_range = args["lr_range"]
+    epochs = args["epochs"]
+    batch_size = args["batch_size"]
+    crop = args["crop"]
+    domain_augment = args["domain_augment"]
+    deep_supervision = args["deep_supervision"]
+    metadata_film = args["metadata_film"]
+    downsample = args["downsample"]
+    resume = args["resume"]
+    data_range = args["data_range"]
     print(data_range)
 
     dataset = ISLESDataset(
