@@ -322,7 +322,7 @@ def main():
 
     args = parse_arguments()
 
-    output_dir = args["output"]
+    output_dir = args["output_dir"]
     lr_range = args["lr_range"]
     epochs = args["epochs"]
     batch_size = args["batch_size"]
