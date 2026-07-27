@@ -68,8 +68,6 @@ def get_losses(
     )
 
 
-
-
 def train_model(
     model: LightMedSeg,
     train_loader: DataLoader,
@@ -174,7 +172,13 @@ def train_model(
 
                 with autocast(device_type=device, dtype=torch.float32):
                     _, (loss, l_dice, l_ce, l_bdry) = get_losses(
-                        model, images, metadata, targets, criterion, model_type
+                        model,
+                        images,
+                        metadata,
+                        targets,
+                        criterion,
+                        model_type,
+                        deep_supervision,
                     )
 
                 val_loss += loss.item()
@@ -221,6 +225,7 @@ def train_model(
 
         model.save(save_path_last, metadata)
 
+
 def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -243,7 +248,7 @@ def parse_arguments():
         "--lr-range",
         help="Learning rate range in the format max:min. Must follow Python's float format.",
         type=str,
-        default="5e-4:1e-8"
+        default="5e-4:1e-8",
     )
 
     parser.add_argument(
@@ -295,15 +300,16 @@ def parse_arguments():
     )
 
     args = parser.parse_args()
-    
+
     parsed = {}
-    
+
     parsed["output_dir"] = args.output
-    
+
     split = args.lr_range.split(":")
     parsed["lr_range"] = (float(split[0]), float(split[1]))
-    
 
+    parsed["model"] = args.model
+    parsed["model_size"] = args.model_size
     parsed["epochs"] = args.epochs
     parsed["batch_size"] = args.batch_size
     parsed["crop"] = args.crop
@@ -312,10 +318,11 @@ def parse_arguments():
     parsed["metadata_film"] = not args.ignore_metadata
     parsed["downsample"] = not args.crop
     parsed["resume"] = args.resume
-
     rng = args.range
     parsed["data_range"] = None if rng == None else [int(idx) for idx in rng.split(":")]
+
     return parsed
+
 
 def main():
     torch.manual_seed(42)
@@ -367,15 +374,15 @@ def main():
         last_epoch = -1
         optimizer_state_dict = None
 
-        if args.model == "base":
-            if args.model_size == "small":
+        if args["model"] == "base":
+            if args["model_size"] == "small":
                 model = LightMedSeg.small(
                     n_classes=2,
                     in_channels=1,
                     metadata_film=metadata_film,
                     downsample=downsample,
                 )
-            elif args.model_size == "medium":
+            elif args["model_size"] == "medium":
                 model = LightMedSeg.medium(
                     n_classes=2,
                     in_channels=1,
@@ -390,12 +397,12 @@ def main():
                     downsample=downsample,
                 )
         else:
-            if args.model_size == "small":
+            if args["model_size"] == "small":
                 model = LMSBR.small(
                     n_classes=2,
                     metadata_film=metadata_film,
                 )
-            elif args.model_size == "medium":
+            elif args["model_size"] == "medium":
                 model = LMSBR.medium(
                     n_classes=2,
                     metadata_film=metadata_film,
@@ -420,7 +427,7 @@ def main():
         model,
         train_loader,
         val_loader,
-        model_type=args.model,
+        model_type=args["model"],
         num_epochs=epochs,
         device=device,
         lr=lr_range,
