@@ -6,16 +6,12 @@ import pandas as pd
 import numpy as np
 from torch.utils.data import Dataset
 import nibabel as nib
+from monai.data import PersistentDataset
 from monai.transforms import (
     LoadImaged,
     Compose,
     EnsureTyped,
     EnsureChannelFirstd,
-    CopyItemsd,
-    SobelGradientsd,
-    ScaleIntensityRangePercentilesd,
-    ConcatItemsd,
-    DeleteItemsd,
     ResizeWithPadOrCropd,
     Lambdad,
     RandCropByPosNegLabeld,
@@ -30,13 +26,38 @@ from monai.transforms import (
     Spacingd,
     CropForegroundd,
     SpatialPadd,
+    Orientationd,
 )
 
 
 from utils.shared import get_dataset_filepaths
 
 
-class GatedAugmentationBlockd(MapTransform):
+class FullVolumeTrasforms(MapTransform):
+    def __init__(self, image_keys=["image"], label_keys=["mask"], block_prob=0.5):
+        all_keys = image_keys + label_keys
+        super().__init__(all_keys)
+
+        self.block_prob = block_prob
+        self.aug_pipeline = Compose(
+            [
+                RandBiasFieldd(
+                    keys=image_keys,
+                    degree=3,
+                    coeff_range=(0.0, 0.1),
+                    prob=0.8,
+                ),
+            ]
+        )
+
+    def __call__(self, data):
+        if np.random.rand() > self.block_prob:
+            return data
+
+        return self.aug_pipeline(data)
+
+
+class PatchTransforms(MapTransform):
     def __init__(self, image_keys=["image"], label_keys=["mask"], block_prob=0.5):
         # MapTransform needs to know all the keys it will interact with
         all_keys = image_keys + label_keys
@@ -57,12 +78,6 @@ class GatedAugmentationBlockd(MapTransform):
                     magnitude_range=(100, 200),
                     mode=("bilinear", "nearest"),
                     padding_mode="zeros",
-                ),
-                RandBiasFieldd(
-                    keys=image_keys,
-                    degree=3,
-                    coeff_range=(0.0, 0.1),
-                    prob=0.8,
                 ),
                 RandFlipd(keys=all_keys, spatial_axis=0, prob=0.8),
                 RandFlipd(keys=all_keys, spatial_axis=1, prob=0.8),
@@ -98,7 +113,7 @@ class GatedAugmentationBlockd(MapTransform):
         return self.aug_pipeline(data)
 
 
-class ISLESDataset(Dataset):
+class ISLESDataset(PersistentDataset):
     # mask_add_bgc: whether to add a background channel to the target mask
     def __init__(
         self,
@@ -107,17 +122,23 @@ class ISLESDataset(Dataset):
         random_crop=False,
         domain_augment=False,
         random_seed=42,
+        cache_dir="./monai_cache",
     ):
-        super().__init__()
-
         self.mask_add_bgc = mask_add_bgc
         self.random_crop = random_crop
 
         self.metadata, self.features, self.labels = get_dataset_filepaths(range)
 
+        self.parsed_metadata = [self.parse_metadata(file) for file in self.metadata]
+
+        data_dicts = [
+            {"image": img, "mask": lbl, "metadata": meta}
+            for img, lbl, meta in zip(self.features, self.labels, self.parsed_metadata)
+        ]
+
         print(len(self.features))
 
-        transform_list = [
+        fixed_transforms = [
             LoadImaged(keys=["image", "mask"]),
             EnsureChannelFirstd(keys=["image", "mask"]),
             Spacingd(
@@ -125,24 +146,14 @@ class ISLESDataset(Dataset):
                 pixdim=(1.0, 1.0, 1.0),
                 mode=("bilinear", "nearest"),
             ),
+            Orientationd(keys=["image", "mask"], axcodes="RAS"),
             # EnsureTyped(keys=["image", "mask"], device="cuda"),
         ]
-
-        cropper = RandCropByPosNegLabeld(
-            keys=["image", "mask"],
-            label_key="mask",
-            spatial_size=(128, 128, 128),
-            pos=1,  # Ratio of patches containing a lesion
-            neg=1,  # Ratio of patches containing background only
-            num_samples=1,  # How many patches to extract per patient per epoch
-            image_key="image",
-            image_threshold=0,
-        )
 
         # Crop out background if training on 128^3 patches
         # Otherwise, standardize to 256^3
         if random_crop:
-            transform_list.extend(
+            fixed_transforms.extend(
                 [
                     CropForegroundd(keys=["image", "mask"], source_key="image"),
                     SpatialPadd(
@@ -154,7 +165,7 @@ class ISLESDataset(Dataset):
                 ]
             )
         else:
-            transform_list.append(
+            fixed_transforms.append(
                 ResizeWithPadOrCropd(
                     keys=["image", "mask"],
                     spatial_size=(256, 256, 256),
@@ -162,21 +173,47 @@ class ISLESDataset(Dataset):
                 ),
             )
 
+        super().__init__(
+            data=data_dicts,
+            transform=Compose(fixed_transforms),
+            cache_dir=cache_dir,
+        )
+
+        dynamic_transforms = []
+
         if domain_augment:
-            transform_list.append(
-                GatedAugmentationBlockd(
+            dynamic_transforms.append(
+                FullVolumeTrasforms(
                     image_keys=["image"], label_keys=["mask"], block_prob=0.25
                 )
             )
 
         if random_crop:
-            transform_list.append(cropper)
+            dynamic_transforms.append(
+                RandCropByPosNegLabeld(
+                    keys=["image", "mask"],
+                    label_key="mask",
+                    spatial_size=(128, 128, 128),
+                    pos=1,  # Ratio of patches containing a lesion
+                    neg=1,  # Ratio of patches containing background only
+                    num_samples=1,  # How many patches to extract per patient per epoch
+                    image_key="image",
+                    image_threshold=0,
+                )
+            )
 
-        transform_list.append(
+        if domain_augment:
+            dynamic_transforms.append(
+                PatchTransforms(
+                    image_keys=["image"], label_keys=["mask"], block_prob=0.25
+                )
+            )
+
+        dynamic_transforms.append(
             Lambdad(keys=["mask"], func=lambda x: torch.cat([1.0 - x, x], dim=0))
         )
 
-        self.transforms = Compose(transform_list)
+        self.dynamic_transforms = Compose(dynamic_transforms)
 
         # self.cropper = RandSpatialCropd(
         #     keys=["image", "mask"],
@@ -236,15 +273,12 @@ class ISLESDataset(Dataset):
         # if self.mask_add_bgc:
         #     bg = 1.0 - mask
         #     mask = torch.cat([bg, mask], dim=0)
-        meta = self.parse_metadata(self.metadata[idx])
-
-        out = {"image": self.features[idx], "mask": self.labels[idx], "metadata": meta}
+        
+        data_dict = super().__getitem__(idx)
+        out = self.dynamic_transforms(data_dict)
         # days_post_stroke = torch.tensor(meta['DAYS_POST_STROKE'][0])
         # print(meta)
         # return {"image": image, "mask": mask, "metadata": meta}
-
-        out = self.transforms(out)
-
         if self.random_crop:
             return out[0]
         else:

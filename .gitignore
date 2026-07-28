@@ -5,4 +5,5 @@ misc/
 weights/
 venv/
 *.pth
+monai_cache/
 data.zip
