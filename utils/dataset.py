@@ -29,6 +29,7 @@ from monai.transforms import (
     Rand3DElasticd,
     Spacingd,
     CropForegroundd,
+    SpatialPadd,
 )
 
 
@@ -130,7 +131,7 @@ class ISLESDataset(Dataset):
         cropper = RandCropByPosNegLabeld(
             keys=["image", "mask"],
             label_key="mask",
-            spatial_size=(128, 128, 128), 
+            spatial_size=(128, 128, 128),
             pos=1,  # Ratio of patches containing a lesion
             neg=1,  # Ratio of patches containing background only
             num_samples=1,  # How many patches to extract per patient per epoch
@@ -141,8 +142,16 @@ class ISLESDataset(Dataset):
         # Crop out background if training on 128^3 patches
         # Otherwise, standardize to 256^3
         if random_crop:
-            transform_list.append(
-                CropForegroundd(keys=["image", "mask"], source_key="image"),
+            transform_list.extend(
+                [
+                    CropForegroundd(keys=["image", "mask"], source_key="image"),
+                    SpatialPadd(
+                        keys=["image", "mask"],
+                        spatial_size=(128, 128, 128),
+                        mode="constant",
+                        constant_values=0,
+                    ),
+                ]
             )
         else:
             transform_list.append(
