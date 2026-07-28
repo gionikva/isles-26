@@ -36,7 +36,7 @@ from utils.shared import get_dataset_filepaths
 
 
 class GatedAugmentationBlockd(MapTransform):
-    def __init__(self, image_keys=["image"], label_keys=["label"], block_prob=0.5):
+    def __init__(self, image_keys=["image"], label_keys=["mask"], block_prob=0.5):
         # MapTransform needs to know all the keys it will interact with
         all_keys = image_keys + label_keys
         super().__init__(all_keys)
@@ -50,7 +50,7 @@ class GatedAugmentationBlockd(MapTransform):
         self.aug_pipeline = Compose(
             [
                 Rand3DElasticd(
-                    keys=["image", "label"],
+                    keys=all_keys,
                     prob=0.2,
                     sigma_range=(5, 8),
                     magnitude_range=(100, 200),
@@ -58,7 +58,7 @@ class GatedAugmentationBlockd(MapTransform):
                     padding_mode="zeros",
                 ),
                 RandBiasFieldd(
-                    keys=["image"],
+                    keys=image_keys,
                     degree=3,
                     coeff_range=(0.0, 0.1),
                     prob=0.8,
@@ -84,7 +84,7 @@ class GatedAugmentationBlockd(MapTransform):
                     gamma=(0.5, 2.0),  # Contrast adjustment range
                     prob=0.8,
                 ),
-                RandShiftIntensityd(keys=["image"], prob=0.8, offsets=0.1),
+                RandShiftIntensityd(keys=image_keys, prob=0.8, offsets=0.1),
             ]
         )
 
@@ -120,7 +120,7 @@ class ISLESDataset(Dataset):
             LoadImaged(keys=["image", "mask"]),
             EnsureChannelFirstd(keys=["image", "mask"]),
             Spacingd(
-                keys=["image", "label"],
+                keys=["image", "mask"],
                 pixdim=(1.0, 1.0, 1.0),
                 mode=("bilinear", "nearest"),
             ),
@@ -142,7 +142,7 @@ class ISLESDataset(Dataset):
         # Otherwise, standardize to 256^3
         if random_crop:
             transform_list.append(
-                CropForegroundd(keys=["image", "label"], source_key="image"),
+                CropForegroundd(keys=["image", "mask"], source_key="image"),
             )
         else:
             transform_list.append(

@@ -2,7 +2,7 @@ import os
 import torch
 import argparse
 from models.models import LightMedSeg, LMSBR
-from utils.dataset import ISLESDataset, OctantCropDataset
+from utils.dataset import ISLESDataset
 from utils.loss import LightMedSegLoss
 from torch.utils.data import DataLoader, random_split
 import torch.optim as optim
