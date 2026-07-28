@@ -28,8 +28,6 @@ from monai.transforms import (
     SpatialPadd,
     Orientationd,
 )
-
-
 from utils.shared import get_dataset_filepaths
 
 
@@ -215,17 +213,6 @@ class ISLESDataset(PersistentDataset):
 
         self.dynamic_transforms = Compose(dynamic_transforms)
 
-        # self.cropper = RandSpatialCropd(
-        #     keys=["image", "mask"],
-        #     roi_size=(128, 128, 128),
-        #     random_size=False
-        # )
-
-        # 2. Set the seed for this specific transform
-        # self.cropper.set_random_state(seed=random_seed)
-
-        # 3. Apply it to your data dictionary
-
     def parse_metadata(self, filepath):
         # 0: days_post_stroke missing? 0/1
         # 1: chronicity missing? 0/1
@@ -262,23 +249,9 @@ class ISLESDataset(PersistentDataset):
         return out
 
     def __getitem__(self, idx):
-        # image = torch.tensor(
-        #     nib.load(self.features[idx]).get_fdata(), dtype=torch.float
-        # )
-
-        # mask = torch.tensor(nib.load(self.labels[idx]).get_fdata(), dtype=torch.float)
-
-        # image = self.standardize_grid(image.unsqueeze(0))
-        # mask = self.standardize_grid(mask.unsqueeze(0))
-        # if self.mask_add_bgc:
-        #     bg = 1.0 - mask
-        #     mask = torch.cat([bg, mask], dim=0)
-        
         data_dict = super().__getitem__(idx)
         out = self.dynamic_transforms(data_dict)
-        # days_post_stroke = torch.tensor(meta['DAYS_POST_STROKE'][0])
-        # print(meta)
-        # return {"image": image, "mask": mask, "metadata": meta}
+        
         if self.random_crop:
             return out[0]
         else:
