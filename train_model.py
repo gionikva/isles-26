@@ -80,6 +80,7 @@ def train_model(
     ce_only=False,
     device="cuda",
     last_epoch=-1,
+    best_val_loss = float('inf'),
     optimizer_state_dict=None,
     save_path_best="lightmedseg_best.pth",
     save_path_last="lightmedseg_last.pth",
@@ -96,7 +97,7 @@ def train_model(
         optimizer, eta_min=lr[1], T_max=num_epochs, last_epoch=last_epoch
     )
 
-    best_val_loss = float("inf")
+    best_val_loss = best_val_loss
 
     for epoch in range(last_epoch + 1, num_epochs):
         print(f"Epoch {epoch+1}/{num_epochs}\n")
@@ -360,6 +361,7 @@ def main():
 
     if resume:
         last_weights_path = os.path.join(output_dir, "last.pth")
+        best_weights_path = os.path.join(output_dir, "best.pth")
 
         checkpoint = torch.load(last_weights_path)
         model_type = checkpoint["model"]
@@ -369,9 +371,11 @@ def main():
             model = LMSBR.load(last_weights_path)
 
         last_epoch = checkpoint["metadata"]["epoch"]
+        best_val_loss = torch.load(best_weights_path)["metadata"]["val_loss"]
         optimizer_state_dict = checkpoint["metadata"]["optimizer_state_dict"]
     else:
         last_epoch = -1
+        best_val_loss = float('inf')
         optimizer_state_dict = None
 
         if args["model"] == "base":
@@ -434,6 +438,7 @@ def main():
         deep_supervision=deep_supervision,
         last_epoch=last_epoch,
         optimizer_state_dict=optimizer_state_dict,
+        best_val_loss=best_val_loss,
         # ce_only=True,
         save_path_best=os.path.join(output_dir, "best.pth"),
         save_path_last=os.path.join(output_dir, "last.pth"),
