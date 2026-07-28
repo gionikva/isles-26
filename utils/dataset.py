@@ -24,82 +24,15 @@ from monai.transforms import (
     RandRotated,
     RandGaussianNoised,
     RandAdjustContrastd,
+    RandShiftIntensityd,
+    RandBiasFieldd,
+    Rand3DElasticd,
+    Spacingd,
+    CropForegroundd,
 )
 
 
 from utils.shared import get_dataset_filepaths
-
-
-class OctantCropDataset(Dataset):
-    # mask_add_bgc: whether to add a background channel to the target mask
-    def __init__(self, split="train", range=None, mask_add_bgc=True):
-        super().__init__()
-
-        self.mask_add_bgc = mask_add_bgc
-
-        self.metadata, self.features, self.labels = get_dataset_filepaths(range)
-
-        self.standardize_grid = ResizeWithPadOrCrop(
-            spatial_size=(256, 256, 256), mode="constant"
-        )
-
-        # For caching
-        self.last_dataset_idx = None
-        self.patches = None
-
-        # 2. Set the seed for this specific transform
-
-        # 3. Apply it to your data dictionary
-
-    def split(self, image, mask):
-        img_oct = [
-            block
-            for z_half in torch.chunk(image, 2, dim=1)
-            for y_half in torch.chunk(z_half, 2, dim=2)
-            for block in torch.chunk(y_half, 2, dim=3)
-        ]
-
-        msk_oct = [
-            block
-            for z_half in torch.chunk(mask, 2, dim=1)
-            for y_half in torch.chunk(z_half, 2, dim=2)
-            for block in torch.chunk(y_half, 2, dim=3)
-        ]
-
-        return img_oct, msk_oct
-
-    def __getitem__(self, idx):
-        dataset_idx = idx // 8
-        patch_number = idx % 8
-
-        if self.last_dataset_idx == dataset_idx:
-            return self.patches[patch_number]
-        else:
-            self.last_dataset_idx = dataset_idx
-            self.patches = []
-            full_img = torch.tensor(
-                nib.load(self.features[dataset_idx]).get_fdata(), dtype=torch.float
-            )
-            full_mask = torch.tensor(
-                nib.load(self.labels[dataset_idx]).get_fdata(), dtype=torch.float
-            )
-            full_img = self.standardize_grid(full_img.unsqueeze(0))
-            full_mask = self.standardize_grid(full_mask.unsqueeze(0))
-            if self.mask_add_bgc:
-                bg = 1.0 - full_mask
-                full_mask = torch.cat([full_mask, bg], dim=0)
-
-            img_oct, msk_oct = self.split(full_img, full_mask)
-
-            for img_oct, msk_oct in zip(img_oct, msk_oct):
-                self.patches.append({"image": img_oct, "mask": msk_oct})
-
-            # print(patch_number, len(self.patches))
-
-            return self.patches[patch_number]
-
-    def __len__(self):
-        return 8 * len(self.features)
 
 
 class GatedAugmentationBlockd(MapTransform):
@@ -116,9 +49,23 @@ class GatedAugmentationBlockd(MapTransform):
         # the augmented data to get a random mix, lower these internal probabilities.
         self.aug_pipeline = Compose(
             [
-                RandFlipd(keys=all_keys, spatial_axis=0, prob=0.5),
-                RandFlipd(keys=all_keys, spatial_axis=1, prob=0.5),
-                RandFlipd(keys=all_keys, spatial_axis=2, prob=0.5),
+                Rand3DElasticd(
+                    keys=["image", "label"],
+                    prob=0.2,
+                    sigma_range=(5, 8),
+                    magnitude_range=(100, 200),
+                    mode=("bilinear", "nearest"),
+                    padding_mode="zeros",
+                ),
+                RandBiasFieldd(
+                    keys=["image"],
+                    degree=3,
+                    coeff_range=(0.0, 0.1),
+                    prob=0.8,
+                ),
+                RandFlipd(keys=all_keys, spatial_axis=0, prob=0.8),
+                RandFlipd(keys=all_keys, spatial_axis=1, prob=0.8),
+                RandFlipd(keys=all_keys, spatial_axis=2, prob=0.8),
                 RandRotated(
                     keys=all_keys,
                     range_x=0.4,  # rotation range in radians
@@ -128,15 +75,16 @@ class GatedAugmentationBlockd(MapTransform):
                         "trilinear",
                         "nearest",
                     ],
-                    prob=0.5,
+                    prob=0.8,
                 ),
                 # 2. Intensity: Apply ONLY to image
-                RandGaussianNoised(keys=image_keys, mean=0.0, std=0.1, prob=0.5),
+                RandGaussianNoised(keys=image_keys, mean=0.0, std=0.1, prob=0.8),
                 RandAdjustContrastd(
                     keys=image_keys,
                     gamma=(0.5, 2.0),  # Contrast adjustment range
-                    prob=0.5,
+                    prob=0.8,
                 ),
+                RandShiftIntensityd(keys=["image"], prob=0.8, offsets=0.1),
             ]
         )
 
@@ -171,18 +119,18 @@ class ISLESDataset(Dataset):
         transform_list = [
             LoadImaged(keys=["image", "mask"]),
             EnsureChannelFirstd(keys=["image", "mask"]),
-            # EnsureTyped(keys=["image", "mask"], device="cuda"),
-            ResizeWithPadOrCropd(
-                keys=["image", "mask"],
-                spatial_size=(256, 256, 256),
-                mode="constant",
+            Spacingd(
+                keys=["image", "label"],
+                pixdim=(1.0, 1.0, 1.0),
+                mode=("bilinear", "nearest"),
             ),
+            # EnsureTyped(keys=["image", "mask"], device="cuda"),
         ]
 
         cropper = RandCropByPosNegLabeld(
             keys=["image", "mask"],
             label_key="mask",
-            spatial_size=(128, 128, 128),  # 1/8th the VRAM, but full voxel resolution!
+            spatial_size=(128, 128, 128), 
             pos=1,  # Ratio of patches containing a lesion
             neg=1,  # Ratio of patches containing background only
             num_samples=1,  # How many patches to extract per patient per epoch
@@ -190,16 +138,30 @@ class ISLESDataset(Dataset):
             image_threshold=0,
         )
 
-
+        # Crop out background if training on 128^3 patches
+        # Otherwise, standardize to 256^3
         if random_crop:
-            transform_list.append(cropper)
-            
+            transform_list.append(
+                CropForegroundd(keys=["image", "label"], source_key="image"),
+            )
+        else:
+            transform_list.append(
+                ResizeWithPadOrCropd(
+                    keys=["image", "mask"],
+                    spatial_size=(256, 256, 256),
+                    mode="constant",
+                ),
+            )
+
         if domain_augment:
             transform_list.append(
                 GatedAugmentationBlockd(
-                    image_keys=["image"], label_keys=["mask"], block_prob=0.5
+                    image_keys=["image"], label_keys=["mask"], block_prob=0.25
                 )
             )
+
+        if random_crop:
+            transform_list.append(cropper)
 
         transform_list.append(
             Lambdad(keys=["mask"], func=lambda x: torch.cat([1.0 - x, x], dim=0))
