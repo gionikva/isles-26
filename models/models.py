@@ -47,6 +47,10 @@ class LMSBR(Module):
     @staticmethod
     def load(path, device=None):
         checkpoint = torch.load(path, map_location=device)
+        return LMSBR.from_checkpoint(checkpoint)
+    
+    @staticmethod
+    def from_checkpoint(checkpoint):
         hparams = checkpoint["hyperparams"]
         model = LMSBR(
             n_classes=hparams["n_classes"],
@@ -57,6 +61,7 @@ class LMSBR(Module):
         )
         model.load_state_dict(checkpoint["model_state_dict"])
         return model
+        
 
     def save(self, path, metadata=None):
         save_dict = {
@@ -214,6 +219,10 @@ class LightMedSeg(Module):
     @staticmethod
     def load(path, device=None):
         checkpoint = torch.load(path, map_location=device)
+        return LightMedSeg.from_checkpoint(checkpoint)
+
+    @staticmethod
+    def from_checkpoint(checkpoint):
         hparams = checkpoint["hyperparams"]
         model = LightMedSeg(
             n_classes=hparams["n_classes"],
@@ -225,6 +234,7 @@ class LightMedSeg(Module):
         )
         model.load_state_dict(checkpoint["model_state_dict"])
         return model
+      
 
     def save(self, path, metadata=None):
         save_dict = {
