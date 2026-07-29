@@ -327,7 +327,7 @@ class LightMedSeg(Module):
 
     def forward(self, X, metadata):
         # out = self.final_upsample(logits)
-        return self.deep_forward(X, metadata)[0]
+        return self.forward_deep(X, metadata)[0]
 
     # def forward()
 
