@@ -95,8 +95,8 @@ def main():
     for i in tqdm(range(n_train), desc="Train set"):
         os.makedirs(f"./data/train/{i}", exist_ok=True)
 
-        meta, mask, mri = files[i]
-
+        meta, mri, mask = files[i]
+        
         copy(meta, f"./data/train/{i}/meta.csv")
         copy(mask, f"./data/train/{i}/mask.nii.gz")
         process_image(mri, f"./data/train/{i}/img.nii.gz")
@@ -104,7 +104,7 @@ def main():
     for i in tqdm(range(n_test), desc="Test set"):
         os.makedirs(f"./data/test/{i}", exist_ok=True)
 
-        meta, mask, mri = files[i + n_train]
+        meta, mri, mask = files[i + n_train]
 
         copy(meta, f"./data/test/{i}/meta.csv")
         copy(mask, f"./data/test/{i}/mask.nii.gz")
