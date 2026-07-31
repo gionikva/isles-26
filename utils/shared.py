@@ -2,12 +2,12 @@ import os
 from os import scandir
 
 
-def get_dataset_filepaths(range=None):
+def get_dataset_filepaths(path, range=None):
     metadata = []
     features = []
     labels = []
 
-    root = "./data"
+    root = path
     dirs = [f for f in scandir(root)]
 
     for dir in dirs:

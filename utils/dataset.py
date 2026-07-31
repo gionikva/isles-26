@@ -115,6 +115,7 @@ class ISLESDataset(PersistentDataset):
     # mask_add_bgc: whether to add a background channel to the target mask
     def __init__(
         self,
+        split="train",
         range=None,
         mask_add_bgc=True,
         random_crop=False,
@@ -125,7 +126,7 @@ class ISLESDataset(PersistentDataset):
         self.mask_add_bgc = mask_add_bgc
         self.random_crop = random_crop
 
-        self.metadata, self.features, self.labels = get_dataset_filepaths(range)
+        self.metadata, self.features, self.labels = get_dataset_filepaths(f"./data/{split}", range)
 
         self.parsed_metadata = [self.parse_metadata(file) for file in self.metadata]
 

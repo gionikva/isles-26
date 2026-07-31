@@ -344,7 +344,7 @@ def main():
     print(data_range)
 
     dataset = ISLESDataset(
-        range=data_range, random_crop=crop, domain_augment=domain_augment
+        split="train", range=data_range, random_crop=crop, domain_augment=domain_augment
     )
 
     print(len(dataset))
