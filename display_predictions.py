@@ -197,7 +197,7 @@ def main():
 
     model.eval()
 
-    dataset = ISLESDataset(random_crop=crop)
+    dataset = ISLESDataset(split="test", random_crop=crop)
     dataloader = DataLoader(dataset, 1, True)
 
     results = []
