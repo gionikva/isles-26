@@ -10,81 +10,7 @@ from torch.utils.data import DataLoader
 import torch.nn.functional as F
 from tqdm import tqdm
 
-# def test_components():
-#     anchor_detector = GlobalAnchorDetector(1, 16, 8)
-#     ghost_conv = GhostConv3D(1, 8, downscale=False)
-#     lspm = LSPM()
-#     spatial_film = SpatialAnchorFiLM(8, 8)
-#     dataset = ISLESDataset()
-
-#     img = dataset[500]["image"].numpy()
-#     mask = dataset[500]["mask"].numpy()
-
-#     x = torch.tensor(img, dtype=torch.float)[None, None, ...]
-#     print(x.shape)
-#     y = anchor_detector(x)
-#     f0 = ghost_conv(x)
-#     T, out = lspm(f0)
-
-#     anchors = torch.randn(1, 8, 3)
-
-#     test = spatial_film(anchors, f0)
-
-#     print(f0.shape)
-
-
-def predict_in_octants(model, image, num_classes=2):
-    """
-    Splits a 256x256x256 image into 8 octants of 128x128x128,
-    runs model inference on each, and reconstructs the full volume.
-
-    Args:
-        model: The trained PyTorch model.
-        image: Input tensor of shape (B, C, 256, 256, 256).
-        num_classes: Number of output channels the model predicts.
-
-    Returns:
-        final_mask: The combined argmax segmentation mask of shape (B, 256, 256, 256).
-    """
-    B, C, D, H, W = image.shape
-    device = image.device
-
-    # Pre-allocate an empty tensor to hold the stitched logits
-    # Shape: (B, num_classes, 256, 256, 256)
-    full_logits = torch.zeros(
-        (B, num_classes, D, H, W), device=device, dtype=torch.float16
-    )
-
-    # Define the starting indices for our 8 blocks (0 and 128)
-    steps = [0, 128]
-
-    model.eval()
-    # Loop through the 3 spatial dimensions (Depth, Height, Width)
-    for d in steps:
-        for h in steps:
-            for w in steps:
-                # 1. Extract the 128x128x128 patch
-                patch = image[:, :, d : d + 128, h : h + 128, w : w + 128]
-
-                # 2. Run the patch through the model
-                patch_logits = model(patch)
-
-                # 3. Place the output exactly where it belongs in the full volume
-                full_logits[:, :, d : d + 128, h : h + 128, w : w + 128] = patch_logits
-
-                print("finished octant")
-
-    # Convert the raw logits into a final discrete segmentation mask
-    # argmax across the channel dimension (dim=1) collapses it to (B, 256, 256, 256)
-    final_mask = torch.argmax(full_logits, dim=1)
-
-    return final_mask
-
-
 def visualize_predictions(data, cropped=True, debug=False):
-
-    size = 128 if cropped else 256
-
     images = []
     masks = []
     predictions = []
@@ -167,7 +93,6 @@ def parse_args():
     return parsed
 
 
-
 def main():
 
     args = parse_args()
@@ -210,7 +135,6 @@ def main():
             criterion = LightMedSegLoss()
 
             if not crop:
-
                 def predictor(x):
                     return model(x, metadata)
 
