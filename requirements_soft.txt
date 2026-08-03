@@ -5,3 +5,6 @@ pandas
 numpy
 tqdm
 nibabel
+scikit-learn
+panoptica
+napari
