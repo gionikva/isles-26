@@ -8,3 +8,4 @@ nibabel
 scikit-learn
 panoptica
 napari
+SimpleITK

@@ -131,6 +131,7 @@ scikit-learn==1.9.0
 scipy==1.18.0
 setuptools==83.0.0
 shellingham==1.5.4
+simpleitk==2.5.6
 six==1.17.0
 stack-data==0.6.3
 superqt==0.8.2
