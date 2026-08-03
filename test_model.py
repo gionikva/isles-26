@@ -46,11 +46,12 @@ def parse_args():
         type=int,
     )
     parser.add_argument(
-        "-c",
-        "--cropped",
-        help="Run on 128x128x128 randomly cropped patches. By default use sliding window inference.",
+        "-f",
+        "--full-patches",
+        help="Enable if model was trained on full 256x256x256 patches. Otherwise, it will use sliding window inference.",
         action="store_true",
     )
+    
 
     args = parser.parse_args()
 
@@ -60,7 +61,7 @@ def parse_args():
     parsed["sw_batch_size"] = args.sw_batch_size
     parsed["batch_size"] = args.batch_size
     parsed["random_seed"] = args.random_seed
-    parsed["crop"] = args.cropped
+    parsed["full_patches"] = args.full_patches
 
     return parsed
 
@@ -71,7 +72,7 @@ def main():
     random_seed = args["random_seed"]
     device = "cuda" if torch.cuda.is_available() else "cpu"
     checkpoint_path = args["checkpoint_path"]
-    crop = args["crop"]
+    full_patches = args["full_patches"]
     sw_batch_size = args["sw_batch_size"]
     batch_size = args["batch_size"]
 
@@ -90,7 +91,7 @@ def main():
 
     model.eval()
 
-    dataset = ISLESDataset(split="test", random_crop=crop)
+    dataset = ISLESDataset(split="test", random_crop=False)
     dataloader = DataLoader(dataset, batch_size, True)
 
     total_dice = 0.0
@@ -105,8 +106,7 @@ def main():
             mask = batch["mask"].to(device)
             metadata = batch["metadata"].to(device)
 
-            if not crop:
-
+            if not full_patches:
                 def predictor(x):
                     return model(x, metadata)
 
