@@ -98,7 +98,9 @@ def main():
     total_abs_vol_diff = 0.0
 
     with torch.no_grad():
-        for batch in tqdm(dataloader, desc="Inferring"):
+        test_loop = tqdm(dataloader, desc="Evaluating")
+        
+        for batch in test_loop:
             image = batch["image"].to(device)
             mask = batch["mask"].to(device)
             metadata = batch["metadata"].to(device)
@@ -125,25 +127,52 @@ def main():
 
             probs = torch.softmax(logits, dim=1)
             prediction = (probs > 0.5).float()
-            prediction = cleaner(prediction)[:, 1, :, :, :]
-            mask = mask[:, 1, :, :, :]
+            prediction = cleaner(prediction)[:, 1, :, :, :].detach().cpu().numpy()
+            mask = mask[:, 1, :, :, :].detach().cpu().numpy()
+            
+            batch_dice = 0.0
+            batch_f1 = 0.0
+            batch_abs_vol_diff = 0.0
+            
+            
+            for i in range(batch_size):
+                pred_slice = prediction[i]
+                mask_slice = mask[i]
+                
+                f1, icd, dice = compute_dice_f1_instance_difference(pred_slice, mask_slice)
+                abs_vol_diff = compute_absolute_volume_difference(
+                    pred_slice, mask_slice, voxel_size=1.0
+                )
 
-            f1, icd, dice = compute_dice_f1_instance_difference(prediction, mask)
-            abs_vol_diff = compute_absolute_volume_difference(
-                prediction, mask, voxel_size=1.0
+                batch_dice += dice
+                batch_f1 += f1
+                batch_abs_vol_diff += abs_vol_diff
+                
+            
+
+            batch_dice /= batch_size
+            batch_f1 /= batch_size
+            batch_abs_vol_diff /= batch_size
+
+            total_dice += batch_dice
+            total_f1 += batch_f1
+            total_abs_vol_diff += batch_abs_vol_diff
+            
+            test_loop.set_postfix(
+                {
+                    "DICE": f"{batch_dice:.4f}",
+                    "F1": f"{batch_f1:.4f}",
+                    "AbsVolDiff": f"{batch_abs_vol_diff:.0f}",
+                }
             )
-
-            total_dice += dice
-            total_f1 += f1
-            total_abs_vol_diff += abs_vol_diff
 
     avg_dice = total_dice / len(dataloader)
     avg_f1 = total_f1 / len(dataloader)
     avg_abs_vol_diff = total_abs_vol_diff / len(dataloader)
 
-    print(f"Average DICE: {avg_dice}")
-    print(f"Average Lesion-Wise F1: {avg_f1}")
-    print(f"Average Absolute Volume Difference: {avg_abs_vol_diff}")
+    print(f"Average DICE: {avg_dice:.4f}")
+    print(f"Average Lesion-Wise F1: {avg_f1:.4f}")
+    print(f"Average Absolute Volume Difference: {avg_abs_vol_diff:.0f}")
 
 
 if __name__ == "__main__":
