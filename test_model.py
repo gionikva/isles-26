@@ -12,6 +12,7 @@ from tqdm import tqdm
 from utils.eval import (
     compute_dice_f1_instance_difference,
     compute_absolute_volume_difference,
+    compute_pr_auc,
 )
 
 # def get_dice_score(prediction, mask):
@@ -97,6 +98,8 @@ def main():
     total_dice = 0.0
     total_f1 = 0.0
     total_abs_vol_diff = 0.0
+    total_pr_auc = 0.0
+    alcd = 0
 
     with torch.no_grad():
         test_loop = tqdm(dataloader, desc="Evaluating")
@@ -128,51 +131,62 @@ def main():
             probs = torch.softmax(logits, dim=1)
             prediction = (probs > 0.5).float()
             prediction = cleaner(prediction)[:, 1, :, :, :].detach().cpu().numpy()
+            probs = probs[:, 1, :, :, :].detach().cpu().numpy()
             mask = mask[:, 1, :, :, :].detach().cpu().numpy()
             
             batch_dice = 0.0
             batch_f1 = 0.0
             batch_abs_vol_diff = 0.0
-            
+            batch_pr_auc = 0.0
             
             for i in range(batch_size):
                 pred_slice = prediction[i]
+                probs_slice = probs[i]
                 mask_slice = mask[i]
                 
-                f1, icd, dice = compute_dice_f1_instance_difference(pred_slice, mask_slice)
+                f1, icd, dice = compute_dice_f1_instance_difference(mask_slice, pred_slice)
                 abs_vol_diff = compute_absolute_volume_difference(
-                    pred_slice, mask_slice, voxel_size=1.0
+                    mask_slice, pred_slice, voxel_size=1.0
                 )
+                pr_auc = compute_pr_auc(mask_slice, probs_slice)
 
                 batch_dice += dice
                 batch_f1 += f1
                 batch_abs_vol_diff += abs_vol_diff
+                batch_pr_auc += pr_auc
+                alcd += icd
                 
             
 
             batch_dice /= batch_size
             batch_f1 /= batch_size
             batch_abs_vol_diff /= batch_size
+            batch_pr_auc /= batch_size
 
             total_dice += batch_dice
             total_f1 += batch_f1
             total_abs_vol_diff += batch_abs_vol_diff
+            total_pr_auc += batch_pr_auc
             
             test_loop.set_postfix(
                 {
                     "DICE": f"{batch_dice:.4f}",
                     "F1": f"{batch_f1:.4f}",
                     "AbsVolDiff": f"{batch_abs_vol_diff:.0f}",
+                    "PR-AUC": f"{batch_pr_auc:.4f}",
                 }
             )
 
     avg_dice = total_dice / len(dataloader)
     avg_f1 = total_f1 / len(dataloader)
     avg_abs_vol_diff = total_abs_vol_diff / len(dataloader)
+    avg_pr_auc = total_pr_auc / len(dataloader)
 
     print(f"Average DICE: {avg_dice:.4f}")
     print(f"Average Lesion-Wise F1: {avg_f1:.4f}")
     print(f"Average Absolute Volume Difference: {avg_abs_vol_diff:.0f}")
+    print(f"Average PR-AUC: {avg_pr_auc:.4f}")
+    print(f"Absolute Lesion Count Difference: {alcd}")
 
 
 if __name__ == "__main__":
